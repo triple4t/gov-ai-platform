@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { MessageCircle, Send, Loader2, User, Bot, Mic, Square, Volume2 } from 'lucide-react';
+import { MessageCircle, Send, Loader2, User, Bot, Mic, Square, Volume2, Trash2 } from 'lucide-react';
 import { API_BASE } from '../config';
 const SESSION_STORAGE_KEY = 'gov-ai-chat-session-id';
 
@@ -26,7 +26,7 @@ function getOrCreateSessionId() {
 }
 
 export default function ConversationalAIPanel() {
-  const [sessionId] = useState(getOrCreateSessionId);
+  const [sessionId, setSessionId] = useState(getOrCreateSessionId);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [language, setLanguage] = useState('hi');
@@ -43,6 +43,16 @@ export default function ConversationalAIPanel() {
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   useEffect(() => scrollToBottom(), [messages]);
+
+  const handleClear = () => {
+    setMessages([]);
+    // Setup a new session ID so the backend doesn't remember the previous dialogue block
+    const newId = 'sess_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try {
+      localStorage.setItem(SESSION_STORAGE_KEY, newId);
+    } catch (_) {}
+    setSessionId(newId);
+  };
 
   // Load persistent conversation history for this session
   useEffect(() => {
@@ -177,18 +187,28 @@ export default function ConversationalAIPanel() {
             <MessageCircle size={22} className="conv-ai-logo" />
             <h3 className="conv-ai-title">Conversational AI</h3>
           </div>
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="conv-ai-lang-select"
-            aria-label="Language"
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button 
+              onClick={handleClear}
+              className="conv-ai-lang-select" 
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: 'var(--color-error)' }}
+              title="Clear Chat History"
+            >
+              <Trash2 size={16} /> <span>Clear</span>
+            </button>
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="conv-ai-lang-select"
+              aria-label="Language"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="conv-ai-messages" ref={messagesEndRef}>
@@ -214,7 +234,7 @@ export default function ConversationalAIPanel() {
                     <Bot size={18} />
                   </div>
                   <div className="conv-ai-msg-bubble conv-ai-msg-bubble-assistant">
-                    <span className="conv-ai-msg-text">{m.content}</span>
+                    <span className="conv-ai-msg-text" style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', display: 'block' }}>{m.content}</span>
                     <button
                       type="button"
                       className="conv-ai-tts-btn"

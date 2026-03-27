@@ -44,6 +44,10 @@ class Settings:
     TESSERACT_CMD: str = os.getenv("TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "uploads")
 
+    # --- MLflow Integrations ---
+    MLFLOW_TRACKING_URI: str = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+    MLFLOW_EXPERIMENT_NAME: str = os.getenv("MLFLOW_EXPERIMENT_NAME", "Government AI Backend")
+
     # --- Conversational AI (integrated) ---
     CONVERSATIONAL_DATABASE_URL: str = os.getenv("CONVERSATIONAL_DATABASE_URL", "sqlite+aiosqlite:///./citizen_assistant.db")
 

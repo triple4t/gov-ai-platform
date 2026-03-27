@@ -115,7 +115,19 @@ async def send_message(
     history = r.scalars().all()
 
     messages = [
-        {"role": "system", "content": f"You are a helpful government assistant. Reply in {language}."},
+        {
+            "role": "system", 
+            "content": (
+                f"You are a helpful government assistant. Reply in {language}. "
+                "IMPORTANT RULES: "
+                "1. Structure your answer point-wise so it is easy to read. "
+                "2. When one major component or section is finished, draw a straight line using '─────────────────────────'. "
+                "3. Use the '🔹' symbol for main section titles or main headers. "
+                "4. Use the '•' symbol or numbers (1., 2.) for lists and sub-points. "
+                "5. DO NOT use raw Markdown formatting (strictly NO **, NO ###, NO ---). "
+                "6. Keep the language extremely simple and easy to understand for a common citizen."
+            )
+        }
     ]
     for msg in history:
         messages.append({"role": msg.role, "content": msg.content})

@@ -12,7 +12,7 @@ import json
 import os
 import uuid
 import aiofiles
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect, status, BackgroundTasks
 from app.services.stt_service import stt_service
 from app.services.extraction_service import extraction_service
 from app.services.ocr_service import extract_text_from_file
@@ -20,6 +20,7 @@ from app.services.doc_extraction_service import extract_structured_data_with_llm
 from app.services.barcode_service import scan_file_for_barcodes
 from app.services.summary_service import summarize_document, extract_text_from_image_with_vision
 from app.db import insert_document, get_all_documents
+from app.services.eval_service import evaluate_trace_realtime_sync, evaluate_trace_single_field_sync
 from app.models.schemas import (
     VoiceFormResponse,
     HealthResponse,
@@ -42,6 +43,7 @@ router = APIRouter(prefix="/api/v1", tags=["Voice Form Filling"])
 
 @router.post("/extract-voice-form", response_model=VoiceFormResponse)
 async def extract_voice_form(
+    background_tasks: BackgroundTasks,
     audio: UploadFile = File(..., description="Audio file (wav, mp3, webm, ogg, m4a)"),
     language: str = Form("hi-IN", description="BCP-47 language code: hi-IN, mr-IN, en-IN"),
 ):
@@ -79,6 +81,9 @@ async def extract_voice_form(
         entities = await extraction_service.extract_entities(transcript)
         fields_filled = extraction_service.count_filled_fields(entities)
         logger.info(f"Phase 2 (Extraction) complete: {fields_filled}/6 fields filled")
+        
+        # Trigger background real-time evaluation
+        background_tasks.add_task(evaluate_trace_realtime_sync, transcript, entities.model_dump_json())
 
         return VoiceFormResponse(
             success=True,
@@ -131,6 +136,7 @@ async def extract_text_form(
 
 @router.post("/extract-single-field")
 async def extract_single_field(
+    background_tasks: BackgroundTasks,
     audio: UploadFile = File(..., description="Audio file"),
     language: str = Form("hi-IN", description="BCP-47 language code"),
     field_name: str = Form(..., description="Field key, e.g. 'full_name'"),
@@ -154,6 +160,8 @@ async def extract_single_field(
         # Phase 2: Targeted single-field extraction & translation
         value = await extraction_service.extract_single_field(transcript, field_name, field_description)
         logger.info(f"Single-field Result ({field_name}): '{value}'")
+        
+        background_tasks.add_task(evaluate_trace_single_field_sync, transcript, field_name, value)
 
         return {
             "success": True,
@@ -170,6 +178,7 @@ async def extract_single_field(
 
 @router.post("/extract-single-text-field")
 async def extract_single_text_field(
+    background_tasks: BackgroundTasks,
     text: str = Form(..., description="The STT transcript"),
     language: str = Form("hi-IN", description="BCP-47 language code"),
     field_name: str = Form(..., description="Field key, e.g. 'full_name'"),
@@ -186,6 +195,8 @@ async def extract_single_text_field(
         logger.info(f"Extract-text-field ({field_name}): '{text}'")
         value = await extraction_service.extract_single_field(text, field_name, field_description)
         logger.info(f"Extract-text-field Result ({field_name}): '{value}'")
+        
+        background_tasks.add_task(evaluate_trace_single_field_sync, text, field_name, value)
 
         return {
             "success": True,

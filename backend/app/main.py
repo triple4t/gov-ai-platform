@@ -18,12 +18,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.config import settings
 from app.db import init_db
+import mlflow
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 from app.conversational.database import init_conversational_db
 from app.conversational.auth import router as auth_router
 from app.conversational.chat import router as chat_router
 from app.conversational.voice import router as voice_router
 from app.conversational.documents import router as documents_router
 from app.conversational.integrations import router as integrations_router
+from app.services.prompt_registry import setup_prompt_registry
+
 
 # Configure logging
 logging.basicConfig(
@@ -94,6 +99,18 @@ async def startup_event():
     init_db()
     await init_conversational_db()
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    
+    # Setup MLflow
+    try:
+        os.environ["MLFLOW_TRACKING_URI"] = settings.MLFLOW_TRACKING_URI
+        mlflow.set_tracking_uri(settings.MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(settings.MLFLOW_EXPERIMENT_NAME)
+        mlflow.openai.autolog()
+        FastAPIInstrumentor.instrument_app(app)
+        setup_prompt_registry()
+    except Exception as e:
+        logger.error(f"Failed to initialize MLflow: {e}")
+
     logger.info("=" * 60)
     logger.info("  Unified Voice & OCR Backend Service Starting...")
     logger.info(f"  Deepgram Key:      {'Configured' if settings.DEEPGRAM_API_KEY else 'Missing'}")

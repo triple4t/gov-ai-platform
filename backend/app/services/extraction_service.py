@@ -8,30 +8,15 @@ import json
 import logging
 import re
 import ollama
+import mlflow
 from openai import AzureOpenAI
+from app.services.prompt_registry import get_extraction_prompt
 from app.core.config import settings
 from app.models.schemas import FormEntities
 
 logger = logging.getLogger(__name__)
 
-# The structured extraction prompt instructs the LLM to output strict JSON
-EXTRACTION_PROMPT_TEMPLATE = """Extract these 6 fields from the text below:
-1. full_name
-2. phone_number
-3. pan_card
-4. age
-5. aadhaar_number
-6. address
- 
-RULES:
-- Return ONLY a JSON object.
-- Translate Hindi/Marathi to English.
-- Use actual digits for numbers.
-- If missing, use null.
- 
-Text:
-\"\"\"{text}\"\"\"
-"""
+
 
 
 class ExtractionService:
@@ -77,12 +62,13 @@ class ExtractionService:
              logger.debug(f"Warmup failed: {e}")
 
 
+    @mlflow.trace(name="extract_entities")
     async def extract_entities(self, source_text: str) -> FormEntities:
         """
         Extract the 6 form entities.
         Tries Local GPU first, then falls back to Azure if local fails or finds nothing.
         """
-        prompt = EXTRACTION_PROMPT_TEMPLATE.format(text=source_text)
+        prompt = get_extraction_prompt(source_text)
         raw_output = None
         entities = FormEntities()
 
@@ -369,6 +355,7 @@ class ExtractionService:
     # MAIN SINGLE-FIELD EXTRACTION
     # =========================================================================
 
+    @mlflow.trace(name="extract_single_field")
     async def extract_single_field(self, source_text: str, field_name: str, field_description: str) -> str:
         """
         Extract a single field with intelligent routing:
