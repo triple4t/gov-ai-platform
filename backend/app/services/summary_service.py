@@ -11,23 +11,39 @@ import logging
 import re
 from openai import OpenAI
 from app.core.config import settings
+from app.core.llm_routing import llm_provider_is_local
 
 logger = logging.getLogger(__name__)
 
 # Max characters to send to the model (leave room for response)
 MAX_INPUT_CHARS = 120_000
 
-client = OpenAI(
-    api_key=settings.OPENAI_API_KEY,
-    base_url=settings.OPENAI_BASE_URL,
-)
+
+def _cloud_openai_client() -> OpenAI:
+    return OpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        base_url=settings.OPENAI_BASE_URL,
+    )
 
 
 def extract_text_from_image_with_vision(image_path: str) -> str:
     """
-    Fallback when Tesseract is not installed: use a vision-capable model (e.g. gpt-4o)
-    to extract all text from the image. Returns empty string on failure.
+    Fallback when raster OCR returns little/no text: cloud vision (gpt-4o) or local VLM OCR
+    (LOCAL_OCR_VLM_* + Qwen25VLChatHandler). Returns empty string on failure.
     """
+    if llm_provider_is_local():
+        from app.core.vlm_ocr import extract_text_from_image_vlm, vlm_ocr_configured
+
+        if vlm_ocr_configured():
+            text = extract_text_from_image_vlm(image_path)
+            if text.strip():
+                logger.info("Summarize: extracted text via local VLM OCR.")
+            return text
+        logger.info(
+            "Summarize vision fallback: set LOCAL_OCR_VLM_GGUF_PATH and LOCAL_OCR_VLM_MMPROJ_PATH "
+            "(e.g. LightOnOCR GGUF + mmproj) or use OPENAI_API_KEY for cloud vision."
+        )
+        return ""
     if not settings.OPENAI_API_KEY:
         return ""
     try:
@@ -36,7 +52,7 @@ def extract_text_from_image_with_vision(image_path: str) -> str:
         b64 = base64.standard_b64encode(data).decode("utf-8")
         ext = image_path.lower().split(".")[-1] if "." in image_path else "png"
         mime = "image/png" if ext == "png" else "image/jpeg" if ext in ("jpg", "jpeg") else "image/tiff"
-        response = client.chat.completions.create(
+        response = _cloud_openai_client().chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
                 {
@@ -109,11 +125,34 @@ RULES:
 """
 
     try:
-        response = client.chat.completions.create(
-            model=settings.OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw_output = (response.choices[0].message.content or "").strip()
+        if llm_provider_is_local():
+            from app.core.local_llm import local_chat_complete, local_chat_gguf_configured
+
+            if not local_chat_gguf_configured():
+                return {
+                    "success": False,
+                    "message": "Local chat GGUF not configured (LOCAL_CHAT_GGUF_PATH).",
+                    "summary": "",
+                    "key_points": [],
+                }
+            raw_output = local_chat_complete(
+                system="You return only valid JSON as instructed. No markdown fences, no extra text.",
+                user=prompt,
+                max_tokens=8192,
+            ).strip()
+        else:
+            if not settings.OPENAI_API_KEY:
+                return {
+                    "success": False,
+                    "message": "OpenAI API key not configured (set OPENAI_API_KEY or use LLM_PROVIDER=local).",
+                    "summary": "",
+                    "key_points": [],
+                }
+            response = _cloud_openai_client().chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw_output = (response.choices[0].message.content or "").strip()
         if not raw_output:
             return {
                 "success": False,

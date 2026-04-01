@@ -165,14 +165,22 @@ export default function ConversationalAIPanel() {
       const { data } = await axios.post(
         `${API_BASE}/chat/send`,
         { message: text, language, session_id: sessionId },
-        { headers: { 'Content-Type': 'application/json' } }
+        {
+          headers: { 'Content-Type': 'application/json' },
+          // Local GGUF can take minutes on CPU; default axios timeout is too short.
+          timeout: 600000,
+        }
       );
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: data.response || '' },
       ]);
     } catch (err) {
-      setChatError(err.response?.data?.detail || err.message || 'Send failed');
+      const detail =
+        err.code === 'ECONNABORTED'
+          ? 'Request timed out after 10 minutes. For faster replies, lower LOCAL_CHAT_MAX_TOKENS (e.g. 256–512) on the backend.'
+          : err.response?.data?.detail || err.message || 'Send failed';
+      setChatError(detail);
       setMessages((prev) => prev.filter((m) => m !== userMsg));
     } finally {
       setChatLoading(false);

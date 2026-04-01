@@ -9,6 +9,7 @@ import re
 import ollama as ollama_client
 from openai import AzureOpenAI
 from app.core.config import settings
+from app.core.llm_routing import llm_provider_is_local
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,11 @@ class TranslationService:
         self.model = settings.OLLAMA_TRANSLATE_MODEL
         self.base_url = settings.OLLAMA_BASE_URL
         
-        # Initialize Azure OpenAI Client for fallback
-        if settings.AZURE_GPT_KEY and settings.AZURE_GPT_ENDPOINT:
+        if (
+            not llm_provider_is_local()
+            and settings.AZURE_GPT_KEY
+            and settings.AZURE_GPT_ENDPOINT
+        ):
             self.azure_client = AzureOpenAI(
                 azure_endpoint=settings.AZURE_GPT_ENDPOINT,
                 api_key=settings.AZURE_GPT_KEY,
@@ -34,7 +38,10 @@ class TranslationService:
             logger.info("TranslationService initialized with Azure OpenAI (Fallback)")
         else:
             self.azure_client = None
-            logger.warning("TranslationService: Azure OpenAI credentials missing. Fallback disabled.")
+            if llm_provider_is_local():
+                logger.info("TranslationService: Ollama + local GGUF only (Azure disabled).")
+            else:
+                logger.warning("TranslationService: Azure OpenAI credentials missing. Fallback disabled.")
 
     async def translate_to_english(self, text: str, source_lang: str = "hi") -> str:
         """
@@ -85,12 +92,37 @@ class TranslationService:
                     logger.info("Local translation successful.")
                     return self._clean_translation(translated)
             
-            logger.warning(f"Local model {self.model} not available or empty response. Falling back to Azure...")
+            logger.warning(f"Local model {self.model} not available or empty response.")
 
         except Exception as e:
-            logger.error(f"Local Translation error with {self.model}: {e}. Falling back to Azure...")
+            logger.error(f"Local Translation error with {self.model}: {e}")
 
-        # 2. Fallback to Azure OpenAI
+        # 2. Local GGUF (Qwen)
+        if llm_provider_is_local():
+            try:
+                from app.core.local_llm import local_chat_complete, local_chat_gguf_configured
+
+                if local_chat_gguf_configured():
+                    prompt = (
+                        f"Translate the following {self._lang_name(source_lang)} text to English. "
+                        f"Return ONLY the translated English text, no labels or quotes.\n\n{text}"
+                    )
+                    out = local_chat_complete(
+                        system="You are a professional translator. Output only the translation.",
+                        user=prompt,
+                        max_tokens=512,
+                    ).strip()
+                    if out:
+                        logger.info("Local GGUF translation successful.")
+                        return self._clean_translation(out)
+            except Exception as ge:
+                logger.warning(f"Local GGUF translation failed: {ge}")
+
+        # 3. Azure (cloud mode only)
+        if llm_provider_is_local():
+            logger.warning("Translation: local backends failed; returning original text.")
+            return text
+
         if not self.azure_client:
             logger.error("Azure translation fallback not available. Returning original text.")
             return text
@@ -118,49 +150,37 @@ class TranslationService:
 
     def _clean_translation(self, translated: str) -> str:
         """Helper to clean LLM conversational filler and formatting."""
-        # translategemma:4b sometimes outputs conversational filler. 
-            # We need to aggressively strip it out so the extraction prompt doesn't get confused.
-            import re
-            
-            # Remove common prefixes like "Here is the translation:", "Sure,", "Translation:"
-            prefixes_to_strip = [
-                r"^here is the translation:\s*",
-                r"^sure, here is the translation:\s*",
-                r"^translation:\s*",
-                r"^translated text:\s*",
-                r"^english:\s*",
-                r"^\*?\*?here are a few options.*?\*?\*?:\s*",
-                r"^here are a few.*?\s*"
-            ]
-            for prefix in prefixes_to_strip:
-                translated = re.sub(prefix, "", translated, flags=re.IGNORECASE)
-                
-            # Specifically target the exact phrase from the user's error:
-            # "Here are a few options, depending on the context: * **11, 12...**"
-            # "Here are a few possible translations, depending on the context:"
-            options_match = re.search(r"here are a few.*?(?:options|translations|context).*?:\s*(.*?)$", translated, flags=re.IGNORECASE | re.DOTALL)
-            if options_match:
-                translated = options_match.group(1).strip()
-                
-            # If it gave bullet points (e.g., "* **11, 12**"), just take the first one or clean it up
-            # Specifically target "* **11, 12, ...**" pattern
-            bullet_match = re.search(r"^\s*(?:\*|-|\d+\.)\s*(?:\*\*)?(.*?)(?:\*\*)?(?:\n|$)", translated)
-            if bullet_match:
-                translated = bullet_match.group(1)
-                
-            # If it had parens like "(This is a straightforward translation)", strip it
-            translated = re.sub(r"\s*\(.*?\)\s*$", "", translated).strip()
-                
-            return translated.strip()
+        import re
 
-            logger.info(f"Clean translation result: '{translated[:80]}...'")
-            return translated
+        prefixes_to_strip = [
+            r"^here is the translation:\s*",
+            r"^sure, here is the translation:\s*",
+            r"^translation:\s*",
+            r"^translated text:\s*",
+            r"^english:\s*",
+            r"^\*?\*?here are a few options.*?\*?\*?:\s*",
+            r"^here are a few.*?\s*",
+        ]
+        for prefix in prefixes_to_strip:
+            translated = re.sub(prefix, "", translated, flags=re.IGNORECASE)
 
-        except Exception as e:
-            logger.error(f"Translation error with {self.model}: {e}")
-            # Fallback: return original text if translation fails
-            logger.warning("Falling back to original text due to translation failure.")
-            return text
+        options_match = re.search(
+            r"here are a few.*?(?:options|translations|context).*?:\s*(.*?)$",
+            translated,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if options_match:
+            translated = options_match.group(1).strip()
+
+        bullet_match = re.search(
+            r"^\s*(?:\*|-|\d+\.)\s*(?:\*\*)?(.*?)(?:\*\*)?(?:\n|$)",
+            translated,
+        )
+        if bullet_match:
+            translated = bullet_match.group(1)
+
+        translated = re.sub(r"\s*\(.*?\)\s*$", "", translated).strip()
+        return translated.strip()
 
     def _lang_name(self, code: str) -> str:
         """Convert language code to human-readable name."""

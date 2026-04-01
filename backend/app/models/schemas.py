@@ -73,6 +73,8 @@ class HealthResponse(BaseModel):
 # --- Document OCR Specific Schemas ---
 
 class ExtractedData(BaseModel):
+    """Structured OCR output: flat keys for the UI plus nested field bags."""
+
     model_config = ConfigDict(extra="allow")
 
     document_type: Optional[str] = Field(
@@ -82,6 +84,12 @@ class ExtractedData(BaseModel):
     confidence: Optional[str] = Field(
         None, description="Confidence level of extraction"
     )
+
+    name: Optional[str] = Field(None, description="Full name from document")
+    id_number: Optional[str] = Field(None, description="Primary ID (Aadhaar, PAN, etc.)")
+    date_of_birth: Optional[str] = Field(None, description="Date of birth")
+    address: Optional[str] = Field(None, description="Address or work location")
+    phone_number: Optional[str] = Field(None, description="Phone / mobile")
 
     fields: Optional[Dict[str, Any]] = Field(
         default_factory=dict,

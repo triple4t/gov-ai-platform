@@ -1,0 +1,91 @@
+# ============================================================
+# Backend (FastAPI) — Python, local LLM, uploads, benchmarks
+# ============================================================
+
+# --- Environment & secrets (never commit) ---
+.env
+.env.local
+.env.*.local
+*.pem
+*.p12
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Bytecode & caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytype/
+.pyre/
+
+# --- Packaging / build ---
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+pip-wheel-metadata/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Testing & coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+nosetests.xml
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Runtime & local data (API) ---
+uploads/
+*.db
+*.sqlite3
+data/
+
+# Benchmark / report outputs (scripts write under backend/)
+benchmark_results/
+
+# --- ML experiment tracking (optional) ---
+mlruns/
+wandb/
+
+# --- Local vector / Chroma persistence if stored on disk ---
+.chroma/
+chroma_data/
+
+# --- Large model weights (GGUF often copied here by mistake) ---
+*.gguf
+*.gguf.part
+
+# --- OS & editors ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

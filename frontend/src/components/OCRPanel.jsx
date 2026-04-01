@@ -40,6 +40,53 @@ function savePersistedOCR(fileName, extractedData, rawText, barcodes) {
   } catch (_) {}
 }
 
+/** Merge top-level extracted_data with nested fields/other_fields for robust form binding */
+function coalesceExtractedForm(data) {
+  if (!data || typeof data !== 'object') {
+    return { name: '', id_number: '', date_of_birth: '', address: '', phone_number: '' };
+  }
+  const f = data.fields && typeof data.fields === 'object' ? data.fields : {};
+  const o = data.other_fields && typeof data.other_fields === 'object' ? data.other_fields : {};
+
+  const firstNonEmpty = (...vals) => {
+    for (const v of vals) {
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+    return '';
+  };
+
+  const pick = (top, ...keys) => firstNonEmpty(top, ...keys.flatMap((k) => [f[k], o[k]]));
+
+  let address = pick(data.address, 'address', 'work_location', 'office_location');
+  if (!address) {
+    const city = firstNonEmpty(f.city, o.city);
+    const state = firstNonEmpty(f.state, o.state);
+    if (city) address = state ? `${city}, ${state}` : city;
+  }
+
+  return {
+    name: pick(data.name, 'name', 'full_name', 'holder_name', 'employee_name', 'applicant_name'),
+    id_number: pick(
+      data.id_number,
+      'id_number',
+      'aadhaar_number',
+      'uid',
+      'pan_number',
+      'passport_number',
+      'license_number'
+    ),
+    date_of_birth: pick(data.date_of_birth, 'date_of_birth', 'dob', 'birth_date'),
+    phone_number: pick(
+      data.phone_number,
+      'phone_number',
+      'mobile',
+      'mobile_number',
+      'contact_number'
+    ),
+    address,
+  };
+}
+
 export default function OCRPanel() {
   const [file, setFile] = useState(null);
   const [fileInfo, setFileInfo] = useState(null); // { name } when restored from localStorage
@@ -133,13 +180,7 @@ export default function OCRPanel() {
 
       if (response.data.success) {
         const data = response.data.extracted_data || {};
-        const newExtracted = {
-          name: data.name || '',
-          id_number: data.id_number || '',
-          date_of_birth: data.date_of_birth || '',
-          address: data.address || '',
-          phone_number: data.phone_number || ''
-        };
+        const newExtracted = coalesceExtractedForm(data);
         const newRawText = response.data.raw_text || '';
         const newBarcodes = response.data.barcodes || [];
 

@@ -12,6 +12,7 @@ import mlflow
 from openai import AzureOpenAI
 from app.services.prompt_registry import get_extraction_prompt
 from app.core.config import settings
+from app.core.llm_routing import llm_provider_is_local
 from app.models.schemas import FormEntities
 
 logger = logging.getLogger(__name__)
@@ -26,8 +27,12 @@ class ExtractionService:
     """
 
     def __init__(self):
-        # 1. Initialize Azure OpenAI Client (Fallback)
-        if settings.AZURE_GPT_KEY and settings.AZURE_GPT_ENDPOINT:
+        # 1. Azure OpenAI (only when LLM_PROVIDER=azure)
+        if (
+            not llm_provider_is_local()
+            and settings.AZURE_GPT_KEY
+            and settings.AZURE_GPT_ENDPOINT
+        ):
             self.azure_client = AzureOpenAI(
                 azure_endpoint=settings.AZURE_GPT_ENDPOINT,
                 api_key=settings.AZURE_GPT_KEY,
@@ -37,7 +42,10 @@ class ExtractionService:
             logger.info("ExtractionService initialized with Azure OpenAI (Fallback)")
         else:
             self.azure_client = None
-            logger.warning("Azure OpenAI credentials missing. Fallback disabled.")
+            if llm_provider_is_local():
+                logger.info("ExtractionService: using Ollama + local GGUF only (Azure disabled).")
+            else:
+                logger.warning("Azure OpenAI credentials missing. Fallback disabled.")
 
         # 2. Check Local Ollama (Primary for Speed)
         try:
@@ -50,7 +58,13 @@ class ExtractionService:
             self._prewarm_model()
         except Exception as e:
             self.has_ollama = False
-            logger.warning(f"Ollama local service not found: {e}. All requests will go to Azure.")
+            if llm_provider_is_local():
+                logger.warning(
+                    "Ollama local service not found: %s. Entity extraction will use local GGUF when possible.",
+                    e,
+                )
+            else:
+                logger.warning(f"Ollama local service not found: {e}. All requests will go to Azure.")
 
     def _prewarm_model(self):
         """Send a tiny request to load the model into GPU memory."""
@@ -97,13 +111,38 @@ class ExtractionService:
                 else:
                     logger.info("Local GPU returned empty data. Falling back to Azure...")
             except Exception as e:
-                logger.warning(f"Local GPU extraction failed: {e}. Falling back to Azure...")
+                logger.warning(f"Local GPU extraction failed: {e}. Trying other backends...")
 
-        # --- STEP 2: Fallback to Azure ---
-        if not self.azure_client:
-            logger.error("Azure Fallback not available.")
+        # --- STEP 2: Local GGUF (Qwen) ---
+        if llm_provider_is_local():
+            try:
+                from app.core.local_llm import local_chat_complete, local_chat_gguf_configured
+
+                if local_chat_gguf_configured():
+                    logger.info("Extracting entities with local GGUF (Qwen)...")
+                    raw_output = local_chat_complete(
+                        system="You are a helpful data extraction assistant that only outputs valid JSON.",
+                        user=prompt,
+                        max_tokens=1024,
+                    )
+                    entities_dict = self._parse_llm_json(raw_output)
+                    entities = FormEntities(**entities_dict)
+                    if self.count_filled_fields(entities) > 0:
+                        logger.info("Local GGUF extraction successful (found data).")
+                        return entities
+            except Exception as e:
+                logger.warning(f"Local GGUF extraction failed: {e}")
+
+        # --- STEP 3: Azure (cloud mode only) ---
+        if llm_provider_is_local():
+            if self.count_filled_fields(entities) == 0:
+                logger.warning("Entity extraction: local backends produced no filled fields.")
             return entities
-        
+
+        if not self.azure_client:
+            logger.error("Azure fallback not available and no other extractor returned entities.")
+            return entities
+
         try:
             logger.info(f"Extracting entities with AZURE ({self.deployment_name})...")
             response = self.azure_client.chat.completions.create(
@@ -398,8 +437,22 @@ class ExtractionService:
                 logger.info(f"[{field_name}] Local PAN found: {value}")
                 return value
             
-            # 4.2 Fallback to Azure LLM
-            if self.azure_client:
+            # 4.2 Fallback: local GGUF or Azure LLM
+            raw_content = None
+            if llm_provider_is_local():
+                try:
+                    from app.core.local_llm import local_chat_complete, local_chat_gguf_configured
+
+                    if local_chat_gguf_configured():
+                        logger.info(f"[{field_name}] No local match. Trying local GGUF...")
+                        raw_content = local_chat_complete(
+                            system='You extract PAN card numbers. Return ONLY JSON: {"value": "ABCDE1234F" or null}',
+                            user=f"Extract the PAN (5 letters + 4 digits + 1 letter) from: '{source_text}'.",
+                            max_tokens=150,
+                        )
+                except Exception as e:
+                    logger.error(f"[{field_name}] Local GGUF error: {e}")
+            elif self.azure_client:
                 logger.info(f"[{field_name}] No local match. Trying AZURE LLM...")
                 try:
                     response = self.azure_client.chat.completions.create(
@@ -410,26 +463,22 @@ class ExtractionService:
                         ],
                         max_completion_tokens=100
                     )
-                    
                     choice = response.choices[0]
                     raw_content = choice.message.content
                     finish_reason = getattr(choice, 'finish_reason', 'unknown')
-                    
                     if not raw_content:
                         logger.warning(f"[{field_name}] Azure returned empty content. Finish Reason: {finish_reason}")
-                        # If content filtered, LLM often returns empty
-                    else:
-                        logger.info(f"[{field_name}] Azure raw response: {raw_content.strip()}")
-                        parsed = self._parse_llm_json(raw_content)
-                        value = str(parsed.get("value", "")).strip().upper()
-                        if not value or value == "NULL":
-                            # Try simple regex on the raw content if JSON didn't have it
-                            match = re.search(r'[A-Z]{5}\d{4}[A-Z]', raw_content.upper())
-                            if match:
-                                value = match.group(0)
-                                
                 except Exception as e:
                     logger.error(f"[{field_name}] Azure error: {e}")
+
+            if raw_content:
+                logger.info(f"[{field_name}] LLM raw response: {raw_content.strip()}")
+                parsed = self._parse_llm_json(raw_content)
+                value = str(parsed.get("value", "")).strip().upper()
+                if not value or value == "NULL":
+                    match = re.search(r'[A-Z]{5}\d{4}[A-Z]', raw_content.upper())
+                    if match:
+                        value = match.group(0)
 
         # Step 5: Age/DOB - local date parser (always return numerical format)
         elif field_name == "age":

@@ -3,14 +3,16 @@ import logging
 import ollama
 from openai import OpenAI
 from app.core.config import settings
+from app.core.llm_routing import llm_provider_is_local
 
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI/Azure Client
-client = OpenAI(
-    api_key=settings.OPENAI_API_KEY,
-    base_url=settings.OPENAI_BASE_URL,
-)
+
+def _cloud_openai_client() -> OpenAI:
+    return OpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        base_url=settings.OPENAI_BASE_URL,
+    )
 
 
 def extract_structured_data_with_llm(raw_text: str) -> dict:
@@ -141,45 +143,59 @@ def extract_structured_data_with_llm(raw_text: str) -> dict:
             """
 
     raw_output = None
-    
-    # --- STEP 1: Try Local Ollama (Primary) ---
+
+    # --- STEP 1: Local Ollama (primary) ---
     try:
         model_name = settings.OLLAMA_EXTRACT_MODEL
-        logger.info(f"Attempting document extraction with LOCAL {model_name}...")
-        
-        # Check if Ollama service is reachable and has the model
-        ollama.list() 
-        
+        logger.info(f"Attempting document extraction with Ollama ({model_name})...")
+        ollama.list()
         response = ollama.chat(
             model=model_name,
             messages=[
                 {"role": "system", "content": "You are a professional document extraction assistant. Output valid JSON only."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             format="json",
             options={"temperature": 0},
-            keep_alive="5m"
+            keep_alive="5m",
         )
-        raw_output = response['message']['content'].strip()
-        logger.info("Local Ollama document extraction successful.")
-        
+        raw_output = response["message"]["content"].strip()
+        logger.info("Ollama document extraction successful.")
     except Exception as e:
-        logger.warning(f"Local Ollama extraction failed: {e}. Falling back to Azure...")
-        
-        # --- STEP 2: Fallback to Azure OpenAI ---
+        logger.warning(f"Ollama document extraction failed: {e}")
+
+    # --- STEP 2: Local GGUF (Qwen via llama-cpp-python) ---
+    if raw_output is None and llm_provider_is_local():
         try:
-            logger.info(f"Extracting with AZURE ({settings.OPENAI_MODEL})...")
-            response = client.chat.completions.create(
+            from app.core.local_llm import local_chat_complete, local_chat_gguf_configured
+
+            if local_chat_gguf_configured():
+                logger.info("Attempting document extraction with local GGUF...")
+                raw_output = local_chat_complete(
+                    system="You are a professional document extraction assistant. Output valid JSON only, no markdown.",
+                    user=prompt,
+                    max_tokens=8192,
+                ).strip()
+                logger.info("Local GGUF document extraction successful.")
+        except Exception as le:
+            logger.warning(f"Local GGUF document extraction failed: {le}")
+
+    # --- STEP 3: OpenAI (cloud mode only, when key is set) ---
+    if raw_output is None and not llm_provider_is_local() and settings.OPENAI_API_KEY:
+        try:
+            logger.info(f"Extracting with OpenAI ({settings.OPENAI_MODEL})...")
+            response = _cloud_openai_client().chat.completions.create(
                 model=settings.OPENAI_MODEL,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}],
             )
             raw_output = response.choices[0].message.content or "{}"
-            logger.info("Azure document extraction successful.")
-        except Exception as azure_err:
-            logger.error(f"Final fallback to Azure failed: {azure_err}")
-            return {}
+            logger.info("OpenAI document extraction successful.")
+        except Exception as cloud_err:
+            logger.error(f"OpenAI document extraction failed: {cloud_err}")
+
+    if raw_output is None:
+        logger.error("All document extraction backends failed.")
+        return {}
 
     if not raw_output:
         return {}
@@ -203,17 +219,28 @@ def extract_structured_data_with_llm(raw_text: str) -> dict:
             else:
                 extracted_data = {}
         
-        # Normalize keys to lowercase for consistency
-        fields = extracted_data.get("fields", {})
-        other_fields = extracted_data.get("other_fields", {})
+        fields = extracted_data.get("fields") or {}
+        other_fields = extracted_data.get("other_fields") or {}
+        if not isinstance(fields, dict):
+            fields = {}
+        if not isinstance(other_fields, dict):
+            other_fields = {}
+
+        def _of(*keys: str):
+            for k in keys:
+                v = fields.get(k)
+                if v is not None and str(v).strip():
+                    return v
+                v = other_fields.get(k)
+                if v is not None and str(v).strip():
+                    return v
+            return None
 
         # Build address from address, city, state, work_location, or other_fields when main address is empty
         address = (
-            fields.get("address")
-            or fields.get("work_location")
+            _of("address", "work_location", "office_location")
             or other_fields.get("address")
             or other_fields.get("work_location")
-            or other_fields.get("office_location")
         )
         if not address and (fields.get("city") or other_fields.get("city")):
             parts = [fields.get("city") or other_fields.get("city")]
@@ -221,21 +248,40 @@ def extract_structured_data_with_llm(raw_text: str) -> dict:
                 parts.append(fields.get("state") or other_fields.get("state"))
             address = ", ".join(p for p in parts if p)
 
+        name = _of("name", "full_name", "holder_name", "employee_name", "applicant_name")
+        id_number = _of(
+            "id_number",
+            "aadhaar_number",
+            "uid",
+            "pan_number",
+            "passport_number",
+            "license_number",
+        )
+        date_of_birth = _of("date_of_birth", "dob", "birth_date")
+        phone_number = _of("phone_number", "mobile", "mobile_number", "contact_number")
+
         normalized_data = {
-            "name": fields.get("name"),
-            "id_number": (
-                fields.get("id_number")
-                or fields.get("aadhaar_number")
-                or fields.get("pan_number")
-                or fields.get("passport_number")
-                or other_fields.get("pan_number")
-                or other_fields.get("aadhaar_number")
-            ),
-            "date_of_birth": fields.get("date_of_birth"),
+            "document_type": extracted_data.get("document_type"),
+            "confidence": extracted_data.get("confidence"),
+            "name": name,
+            "id_number": id_number,
+            "date_of_birth": date_of_birth,
             "address": address,
-            "phone_number": fields.get("phone_number"),
-            "other_fields": other_fields
+            "phone_number": phone_number,
+            "fields": fields,
+            "other_fields": other_fields,
         }
+
+        logger.info(
+            "Document structured extraction: doc_type=%r name=%r id=%r dob=%r phone=%r address_len=%d other_keys=%s",
+            normalized_data.get("document_type"),
+            normalized_data.get("name"),
+            (normalized_data.get("id_number") or "")[:32] if normalized_data.get("id_number") else None,
+            normalized_data.get("date_of_birth"),
+            (normalized_data.get("phone_number") or "")[:24] if normalized_data.get("phone_number") else None,
+            len(normalized_data.get("address") or "") if normalized_data.get("address") else 0,
+            list(other_fields.keys())[:20],
+        )
 
         return normalized_data
 

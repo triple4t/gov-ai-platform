@@ -17,6 +17,7 @@ from app.services.stt_service import stt_service
 from app.services.extraction_service import extraction_service
 from app.services.ocr_service import extract_text_from_file
 from app.services.doc_extraction_service import extract_structured_data_with_llm
+from app.services.ocr_heuristics import merge_heuristic_into_structured
 from app.services.barcode_service import scan_file_for_barcodes
 from app.services.summary_service import summarize_document, extract_text_from_image_with_vision
 from app.db import insert_document, get_all_documents
@@ -32,6 +33,9 @@ from app.models.schemas import (
 )
 from app.services.face_service import face_service
 from app.core.config import settings
+from app.core.llm_routing import llm_provider_is_local
+from app.core.local_llm import local_chat_gguf_configured, local_embedding_gguf_configured
+from app.core.vlm_ocr import vlm_ocr_configured
 
 logger = logging.getLogger(__name__)
 
@@ -275,12 +279,28 @@ async def stream_stt(websocket: WebSocket, language: str = "hi"):
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint - verifies API keys are configured."""
+    """Health check endpoint — Deepgram + LLM backend (local GGUF or Azure)."""
     try:
         dg_status = "configured" if settings.DEEPGRAM_API_KEY else "missing_key"
-        azure_status = f"configured ({settings.AZURE_GPT_DEPLOYMENT})" if settings.AZURE_GPT_KEY and settings.AZURE_GPT_ENDPOINT else "missing_credentials"
 
-        overall_status = "healthy" if dg_status == "configured" and "configured" in azure_status else "degraded"
+        if llm_provider_is_local():
+            c = "ok" if local_chat_gguf_configured() else "missing"
+            e = "ok" if local_embedding_gguf_configured() else "missing"
+            vo = "vlm_ocr=ok" if vlm_ocr_configured() else "vlm_ocr=off"
+            azure_status = f"local_llm chat={c} embed={e} {vo}"
+            llm_ok = local_chat_gguf_configured()
+            overall_status = "healthy" if dg_status == "configured" and llm_ok else "degraded"
+        else:
+            azure_status = (
+                f"configured ({settings.AZURE_GPT_DEPLOYMENT})"
+                if settings.AZURE_GPT_KEY and settings.AZURE_GPT_ENDPOINT
+                else "missing_credentials"
+            )
+            overall_status = (
+                "healthy"
+                if dg_status == "configured" and "configured" in azure_status
+                else "degraded"
+            )
 
         return HealthResponse(
             status=overall_status,
@@ -308,7 +328,7 @@ async def process_document(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file selected")
 
-    allowed_exts = {".png", ".jpg", ".jpeg", ".pdf", ".tiff"}
+    allowed_exts = {".png", ".jpg", ".jpeg", ".pdf", ".tiff", ".tif"}
     file_ext = os.path.splitext(file.filename)[1].lower()
 
     if file_ext not in allowed_exts:
@@ -328,12 +348,18 @@ async def process_document(file: UploadFile = File(...)):
 
         # 2. Barcode Scanning
         barcodes = []
-        if file_ext in {".png", ".jpg", ".jpeg", ".tiff"}:
+        if file_ext in {".png", ".jpg", ".jpeg", ".tiff", ".tif"}:
             # Sync call to OpenCV-based scan
             barcodes = scan_file_for_barcodes(upload_path)
 
         # 3. OCR Extraction
         raw_text = extract_text_from_file(upload_path)
+        _rt = raw_text or ""
+        logger.info(
+            "Document OCR extracted text: chars=%d preview=%r",
+            len(_rt),
+            _rt[:1200] if len(_rt) <= 1200 else _rt[:1200] + "…",
+        )
 
         if not raw_text or not raw_text.strip():
             if barcodes:
@@ -345,8 +371,9 @@ async def process_document(file: UploadFile = File(...)):
                 )
             return DocumentOCRResponse(success=False, message="Failed to extract text or document is empty.")
 
-        # 4. LLM Structured Extraction
+        # 4. LLM Structured Extraction (+ regex pre-fill when flat fields are empty)
         structured_dict = extract_structured_data_with_llm(raw_text)
+        structured_dict = merge_heuristic_into_structured(structured_dict, raw_text)
         extracted_data = ExtractedData(**structured_dict)
 
         # 5. Persist to SQLite
@@ -426,7 +453,10 @@ async def summarize_document_upload(file: UploadFile = File(..., description="Do
         if not raw_text or not raw_text.strip():
             msg = "Could not extract any text from the document. It may be empty or in an unsupported format."
             if file_ext in image_exts:
-                msg += " For images of documents, install Tesseract OCR (e.g. on macOS: brew install tesseract) or use a PDF/Word file."
+                msg += (
+                    " For images, configure local VLM OCR (LOCAL_OCR_VLM_GGUF_PATH + LOCAL_OCR_VLM_MMPROJ_PATH), "
+                    "install Tesseract, set OPENAI_API_KEY for cloud vision, or use a PDF/Word file."
+                )
             elif file_ext == ".doc":
                 msg += " For Word documents, please use .docx or export as PDF."
             return SummarizeResponse(success=False, message=msg, raw_text_preview=None)

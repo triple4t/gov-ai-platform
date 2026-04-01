@@ -1,3 +1,12 @@
+# =============================================================================
+# government-ai backend — Python dependencies (pinned)
+# Install:  python -m venv .venv
+#           .venv/Scripts/Activate.ps1      # Windows PowerShell
+#           pip install --upgrade pip
+#           pip install -r requirements.txt
+# When adding a package: add ONE line name==version here, then pip install -r requirements.txt
+# =============================================================================
+
 absl-py==2.4.0
 aenum==3.1.17
 aiofiles==24.1.0
@@ -37,6 +46,7 @@ docker==7.1.0
 ecdsa==0.19.2
 email_validator==2.2.0
 et_xmlfile==2.0.0
+faiss-cpu==1.9.0.post1
 fastapi==0.115.0
 fastuuid==0.14.0
 filelock==3.25.2
@@ -75,6 +85,7 @@ jsonschema-specifications==2025.9.1
 kiwisolver==1.5.0
 limits==5.8.0
 litellm==1.82.6
+llama-cpp-python==0.3.19
 lxml==6.0.2
 Mako==1.3.10
 mammoth==1.8.0
@@ -83,24 +94,23 @@ MarkupSafe==3.0.3
 marshmallow==3.26.2
 matplotlib==3.10.8
 mdurl==0.1.2
-mediapipe==0.10.14
 ml_dtypes==0.5.4
 mlflow==3.10.1
 mlflow-skinny==3.10.1
 mlflow-tracing==3.10.1
 multidict==6.7.1
 mypy_extensions==1.1.0
+neo4j==5.25.0
 numpy==2.1.1
 ollama==0.3.3
 openai==2.28.0
-opencv-contrib-python==4.13.0.92
 opencv-python-headless==4.10.0.84
 openpyxl==3.1.2
 opentelemetry-api==1.40.0
 opentelemetry-instrumentation==0.61b0
 opentelemetry-instrumentation-asgi==0.61b0
 opentelemetry-instrumentation-fastapi==0.61b0
-opentelemetry-proto==1.27.0
+opentelemetry-proto==1.40.0
 opentelemetry-sdk==1.40.0
 opentelemetry-semantic-conventions==0.61b0
 opentelemetry-util-http==0.61b0
@@ -112,7 +122,7 @@ pdf2image==1.17.0
 pillow==10.4.0
 prettytable==3.17.0
 propcache==0.4.1
-protobuf==4.25.9
+protobuf==5.29.6
 pyarrow==23.0.1
 pyasn1==0.6.3
 pyasn1_modules==0.4.2
@@ -122,6 +132,7 @@ pydantic_core==2.23.4
 Pygments==2.19.2
 PyMuPDF==1.24.10
 PyMuPDFb==1.24.10
+PyPDF2==3.0.1
 pyparsing==3.3.2
 pytesseract==0.3.13
 python-dateutil==2.9.0.post0
@@ -170,3 +181,9 @@ Werkzeug==3.1.7
 wrapt==1.17.3
 yarl==1.23.0
 zipp==3.23.0
+# Advanced RAG (backend/backend/rag_engine): BM25 + Chroma + LangGraph; Jina/Qwen via llama-cpp-python
+rank-bm25==0.2.2
+chromadb==1.5.5
+langgraph==1.1.3
+langchain-text-splitters==1.1.1
+langchain-core==1.2.20
