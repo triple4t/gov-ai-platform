@@ -1,48 +1,35 @@
-import React from 'react';
+import React from 'react'
+import { Sparkles } from 'lucide-react'
 
-/**
- * PRD-only header (no tab strip). Restore `NAV_ITEMS` + props below for full platform.
- */
-export default function Header(/* { activeTab, onTabChange } */) {
-  // const NAV_ITEMS = [
-  //   { id: 1, label: 'Document Summarization', dot: 'green' },
-  //   { id: 2, label: 'Conversational AI', dot: 'green' },
-  //   { id: 3, label: 'Voice-Based Form Filling', dot: 'blue' },
-  //   { id: 4, label: 'Document OCR & Form Processing', dot: 'red' },
-  //   { id: 5, label: 'Image Matching & Liveness', dot: 'red' },
-  //   { id: 6, label: 'AI-Based PRD Platform', dot: 'green' },
-  // ];
-
+export default function Header() {
   return (
-    <>
-      <header className="app-header" id="app-header">
-        <div className="header-left">
-          <div className="header-emblem">📋</div>
-          <div className="header-title">
-            <h1>PRD Platform</h1>
-            <p>Codebase upload, RAG, and document generation</p>
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-card/70 backdrop-blur-xl">
+      <div className="flex h-16 w-full items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-3">
+          <img
+            src="/docu-atlas-logo.png"
+            alt=""
+            width={40}
+            height={40}
+            className="h-10 w-10 shrink-0 object-contain"
+            decoding="async"
+          />
+          <div>
+            <h1 className="font-display text-lg font-bold tracking-tight text-foreground">DocuAtlas</h1>
+            <p className="text-xs text-muted-foreground">Codebase Upload · RAG · Document Generation</p>
           </div>
         </div>
-        <div className="header-right">
-          <span>Government of India — AI Services Platform</span>
-        </div>
-      </header>
 
-      {/* Full nav (pass activeTab, onTabChange from App when restoring tabs):
-      <nav className="nav-bar" id="nav-bar">
-        {NAV_ITEMS.map((item) => (
-          <div
-            key={item.id}
-            className={`nav-item${activeTab === item.id ? ' active' : ''}`}
-            id={`nav-item-${item.id}`}
-            onClick={() => onTabChange(item.id)}
-          >
-            <span className={`nav-dot ${item.dot}`}></span>
-            {item.id}. {item.label}
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 rounded-full bg-secondary/60 px-4 py-1.5 text-xs text-muted-foreground sm:flex">
+            <Sparkles className="h-3 w-3 text-primary" fill="currentColor" />
+            <span>AI-Powered</span>
           </div>
-        ))}
-      </nav>
-      */}
-    </>
-  );
+          <div className="text-right">
+            <p className="text-xs font-medium text-foreground">Navigate code &amp; documents</p>
+          </div>
+        </div>
+      </div>
+    </header>
+  )
 }

@@ -1,40 +1,27 @@
-import React from 'react';
-import Header from './components/Header';
-import PRDPlatformPanel from './components/PRDPlatformPanel';
+import React from 'react'
+import Header from './components/Header'
+import PRDPlatformPanel from './components/PRDPlatformPanel'
 
-// --- Commented: full unified app (voice form, OCR, conversational, face, doc summary) ---
-// import React, { useState, useCallback } from 'react';
-// import VoicePanel from './components/VoicePanel';
-// import FormPanel, { FORM_FIELDS } from './components/FormPanel';
-// import OCRPanel from './components/OCRPanel';
-// import DocumentSummarizationPanel from './components/DocumentSummarizationPanel';
-// import ConversationalAIPanel from './components/ConversationalAIPanel';
-// import FaceVerificationPanel from './components/FaceVerificationPanel';
-// import { useVoiceRecorder } from './hooks/useVoiceRecorder';
-
-/**
- * Lean UI: PRD Platform only (matches lean backend `app/main.py`).
- * Uncomment imports and the block below `PRDPlatformPanel` to restore the full app.
- */
 export default function App() {
   return (
-    <>
+    <div className="flex min-h-screen flex-col bg-background">
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-primary/5 blur-3xl animate-float" />
+        <div
+          className="absolute top-1/2 -left-40 h-96 w-96 rounded-full bg-warm-coral/5 blur-3xl animate-float"
+          style={{ animationDelay: '3s' }}
+        />
+        <div
+          className="absolute -bottom-20 right-1/4 h-64 w-64 rounded-full bg-warm-gold/5 blur-3xl animate-float"
+          style={{ animationDelay: '1.5s' }}
+        />
+      </div>
+
       <Header />
-      <main className="main-content full-width">
+
+      <main className="relative z-10 flex min-h-0 w-full flex-1 flex-col px-3 pb-3 pt-2 sm:px-5 sm:pb-4 lg:px-8">
         <PRDPlatformPanel />
       </main>
-    </>
-  );
+    </div>
+  )
 }
-
-/* Full app body (restore with Header activeTab + onTabChange):
-  const [activeTab, setActiveTab] = useState(3);
-  return (
-    <>
-      <Header activeTab={activeTab} onTabChange={setActiveTab} />
-      <main className={`main-content ${activeTab !== 3 ? 'full-width' : ''}`}>
-        {activeTab === 3 ? ( ... Voice + Form ... ) : activeTab === 4 ? <OCRPanel /> : ...}
-      </main>
-    </>
-  );
-*/

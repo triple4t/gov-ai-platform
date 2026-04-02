@@ -1,26 +1,5 @@
-# ============================================================
-# Frontend (Vite + React)
-# ============================================================
-
-# --- Dependencies ---
-node_modules/
-
-# --- Build output ---
-dist/
-dist-ssr/
-build/
-*.local
-
-# --- Environment (Vite: only .env.example should be committed) ---
-.env
-.env.local
-.env.*.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# --- Logs ---
-logs/
+# Logs
+logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -28,37 +7,18 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# --- Testing / coverage ---
-coverage/
-*.lcov
-.nyc_output/
+node_modules
+dist
+dist-ssr
+*.local
 
-# --- Vite ---
-.vite/
-
-# --- TypeScript (if added later) ---
-*.tsbuildinfo
-
-# --- Tooling caches ---
-.eslintcache
-.stylelintcache
-.parcel-cache/
-.turbo/
-
-# --- Deploy ---
-.vercel
-.netlify
-
-# --- Editor ---
+# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea/
+.idea
+.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-
-# --- OS ---
-.DS_Store
-Thumbs.db

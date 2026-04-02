@@ -6,20 +6,24 @@ import remarkGfm from 'remark-gfm';
 import {
   FileArchive,
   Loader2,
-  Sparkles,
   ChevronRight,
   ChevronLeft,
   Download,
   FileText,
   ImageDown,
-  RefreshCw,
   Code2,
-  Layers,
+  Search,
   Upload,
   MessageSquare,
   Trash2,
+  Send,
   Plus,
+  FolderArchive,
+  Zap,
+  CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { API_BASE } from '../config';
 import { parsePrdPlain, formatSectionHeading } from '../utils/parsePrdPlain';
 import { parseMarkdownForPdf } from '../utils/markdownToPdfStructure';
@@ -43,7 +47,7 @@ const techMarkdownComponents = {
   h1: (props) => {
     const { children, ...rest } = props;
     return (
-      <h1 className="tech-md-h1" {...rest}>
+      <h1 className="tech-md-h1 font-display" {...rest}>
         {children}
       </h1>
     );
@@ -184,6 +188,58 @@ function setStoredProjectId(id) {
 
 const STEPS = ['capability', 'questions', 'upload', 'generate', 'result'];
 
+const STEP_LABELS = {
+  capability: 'Capability',
+  questions: 'Questions',
+  upload: 'Upload',
+  generate: 'Generate',
+  result: 'Result',
+};
+
+const inputFieldClass =
+  'w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-foreground shadow-sm transition-colors placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
+
+const textareaFieldClass = `${inputFieldClass} resize-none`;
+
+function StepIndicator({ current, steps }) {
+  const currentIdx = steps.findIndex((s) => s === current);
+  return (
+    <div className="mb-6 flex items-center gap-1.5 overflow-x-auto pb-1" aria-label="Workflow steps">
+      {steps.map((s, i) => (
+        <div key={s} className="flex items-center gap-1.5">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all duration-300 ${
+              i === currentIdx
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : i < currentIdx
+                  ? 'bg-primary/15 text-primary'
+                  : 'bg-secondary text-muted-foreground'
+            }`}
+          >
+            <span
+              className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+                i === currentIdx
+                  ? 'bg-primary-foreground/20 text-primary-foreground'
+                  : i < currentIdx
+                    ? 'bg-primary/20 text-primary'
+                    : 'bg-muted-foreground/20 text-muted-foreground'
+              }`}
+            >
+              {i < currentIdx ? '✓' : i + 1}
+            </span>
+            {STEP_LABELS[s] || s}
+          </span>
+          {i < steps.length - 1 && (
+            <ChevronRight
+              className={`h-3 w-3 shrink-0 ${i < currentIdx ? 'text-primary/40' : 'text-muted-foreground/30'}`}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PRDPlatformPanel() {
   /** prd = ZIP PRD platform flow; rag = hybrid RAG service (text ingest + query) */
   const [serviceTab, setServiceTab] = useState('prd');
@@ -215,6 +271,7 @@ export default function PRDPlatformPanel() {
   const [ragDropActive, setRagDropActive] = useState(false);
   const ragChatEndRef = React.useRef(null);
   const ragFileInputRef = React.useRef(null);
+  const zipFileInputRef = React.useRef(null);
 
   React.useEffect(() => {
     ragChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -695,709 +752,602 @@ export default function PRDPlatformPanel() {
 
   if (capLoading && serviceTab === 'prd') {
     return (
-      <div className="glass-panel prd-platform-panel" style={{ padding: '48px', textAlign: 'center' }}>
-        <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto' }} />
-        <p style={{ marginTop: 16 }}>Loading PRD Platform…</p>
+      <div className="flex min-h-[240px] flex-col items-center justify-center gap-4 rounded-2xl border border-border/50 bg-card/50 p-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+        <p className="text-sm text-muted-foreground">Loading DocuAtlas…</p>
       </div>
     );
   }
 
   if (capError && serviceTab === 'prd') {
     return (
-      <div className="glass-panel prd-platform-panel" style={{ padding: '48px' }}>
-        <p style={{ color: '#b91c1c' }}>{capError}</p>
+      <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-6 text-sm text-destructive">
+        <p>{capError}</p>
       </div>
     );
   }
 
-  const panelStyle =
-    serviceTab === 'rag'
-      ? { maxWidth: '100%', margin: '0 auto', padding: '8px 8px 12px' }
-      : { maxWidth: '100%', margin: '0 auto', padding: '24px 20px' };
+  const ragFullScreen = serviceTab === 'rag';
 
   return (
-    <div className="prd-platform-panel" style={panelStyle}>
-      <div className="glass-panel" style={{ padding: '24px', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <Sparkles size={28} className="text-accent" />
-          <div>
-            <h2 style={{ margin: 0, fontSize: '1.35rem' }}>AI-Based PRD Platform</h2>
-            <p style={{ margin: '4px 0 0', opacity: 0.85, fontSize: '0.9rem' }}>
-              PRD, technical docs, flow diagrams, SOPs, code review, architecture, dependency graphs, and full project code summary — with clarifying questions per capability.
-            </p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: '0.8rem', opacity: 0.85, marginRight: 4 }}>Service:</span>
-          <button
-            type="button"
-            className={serviceTab === 'prd' ? 'btn-primary' : 'btn-secondary'}
-            style={{ padding: '8px 14px', fontSize: '0.85rem' }}
-            onClick={() => setServiceTab('prd')}
-          >
-            PRD &amp; docs
-          </button>
-          <button
-            type="button"
-            className={serviceTab === 'rag' ? 'btn-primary' : 'btn-secondary'}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: '0.85rem' }}
-            onClick={() => setServiceTab('rag')}
-          >
-            <Layers size={16} aria-hidden />
-            Hybrid RAG
-          </button>
-        </div>
-        {serviceTab === 'prd' ? (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: '0.8rem', opacity: 0.9 }}>
-            {STEPS.map((s) => (
-              <span
-                key={s}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 999,
-                  background: step === s ? 'var(--accent, #6366f1)' : 'rgba(0,0,0,0.06)',
-                  color: step === s ? '#fff' : 'inherit',
-                }}
-              >
-                {s}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.88 }}>
-            BM25 + Chroma + Jina GGUF embeddings + LangGraph + local Qwen (same stack as <code>/api/v1/rag</code>). Index is{' '}
-            <strong>in-memory</strong> on this API process — separate from PRD ZIP / FAISS.
-          </p>
-        )}
+    <div
+      className={
+        ragFullScreen
+          ? 'fixed inset-x-0 bottom-0 top-16 z-40 flex flex-col bg-background'
+          : 'flex min-h-0 flex-1 flex-col gap-4'
+      }
+    >
+      <div
+        className={`flex shrink-0 flex-wrap items-center gap-2 ${ragFullScreen ? 'border-b border-border/40 bg-card/80 px-4 py-3 backdrop-blur-xl' : ''}`}
+      >
+        <Button variant={serviceTab === 'prd' ? 'chip-active' : 'chip'} size="chip" onClick={() => setServiceTab('prd')}>
+          <FileText className="h-3.5 w-3.5" fill="currentColor" />
+          PRD &amp; Docs
+        </Button>
+        <Button variant={serviceTab === 'rag' ? 'chip-active' : 'chip'} size="chip" onClick={() => setServiceTab('rag')}>
+          <Search className="h-3.5 w-3.5" fill="currentColor" />
+          Hybrid RAG
+        </Button>
+        {ragFullScreen ? (
+          <>
+            <div className="mx-2 hidden h-6 w-px bg-border sm:block" aria-hidden />
+            <span className="font-display text-sm font-semibold text-foreground">Document chat</span>
+            <div className="flex-1" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => {
+                setRagChat([]);
+                setRagMsg('');
+                setRagLastFileName('');
+                setRagIndexed(false);
+              }}
+            >
+              <Trash2 className="h-4 w-4" /> New chat
+            </Button>
+          </>
+        ) : null}
       </div>
 
-      {serviceTab === 'rag' && (
-        <div
-          className="glass-panel rag-hybrid-chat"
-          style={{
-            minWidth: 0,
-            padding: '18px',
-            borderRadius: 14,
-            border: '1px solid rgba(99, 102, 241, 0.18)',
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 'calc(100vh - 170px)',
-            background: 'transparent',
-          }}
-        >
-          <input
-            ref={ragFileInputRef}
-            type="file"
-            accept={RAG_FILE_ACCEPT}
-            style={{ display: 'none' }}
-            onChange={onRagFileInputChange}
-          />
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={ragBusy}
-              onClick={() => ragFileInputRef.current?.click()}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 999 }}
-            >
-              <span
-                aria-hidden
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: '50%',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'rgba(99, 102, 241, 0.22)',
-                }}
-              >
-                <Plus size={14} />
-              </span>
-              Upload document
-            </button>
-            {ragLastFileName ? (
-              <span style={{ fontSize: '0.78rem', opacity: 0.85 }}>
-                {ragIndexed ? 'Ready:' : 'File:'} <strong>{ragLastFileName}</strong>
-              </span>
-            ) : null}
-          </div>
-          <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                ragFileInputRef.current?.click();
-              }
-            }}
-            onDragEnter={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setRagDropActive(true);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setRagDropActive(true);
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setRagDropActive(false);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setRagDropActive(false);
-              const f = e.dataTransfer.files?.[0];
-              if (f) handleRagIngestFile(f);
-            }}
-            onClick={() => ragFileInputRef.current?.click()}
-            style={{
-              padding: '14px 14px',
-              borderRadius: 10,
-              border: `1.5px dashed ${ragDropActive ? 'rgba(129, 140, 248, 0.9)' : 'rgba(99, 102, 241, 0.5)'}`,
-              background: ragDropActive ? 'rgba(99, 102, 241, 0.08)' : 'rgba(0,0,0,0.02)',
-              textAlign: 'center',
-              cursor: ragBusy ? 'not-allowed' : 'pointer',
-              marginBottom: 14,
-              opacity: ragBusy ? 0.7 : 1,
-              fontSize: '0.82rem',
-            }}
-          >
-            Drop PDF/DOCX/image here or click to upload
-          </div>
-          <div
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              padding: '12px 8px',
-              marginBottom: 12,
-              minHeight: 220,
-              background: 'rgba(0,0,0,0.03)',
-              borderRadius: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: '1.12rem' }}>
-                <MessageSquare size={22} aria-hidden /> Chat with the doc
-              </h3>
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={ragChat.length === 0}
-                onClick={() => setRagChat([])}
-                title="Clear messages"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: '0.8rem' }}
-              >
-                <Trash2 size={16} aria-hidden /> Clear
-              </button>
-            </div>
-            <p style={{ fontSize: '0.82rem', opacity: 0.85, marginTop: 0, marginBottom: 12 }}>
-              Ask follow-ups about the file you uploaded. <kbd style={{ fontSize: '0.75rem' }}>Enter</kbd> sends,{' '}
-              <kbd style={{ fontSize: '0.75rem' }}>Shift+Enter</kbd> newline.
-            </p>
+      <div
+        className={
+          ragFullScreen
+            ? 'flex min-h-0 flex-1 flex-col'
+            : 'glass-panel flex min-h-0 flex-1 flex-col rounded-xl border border-border/50 p-4 sm:p-6 lg:p-8'
+        }
+      >
+        {serviceTab === 'rag' ? (
+          <div className="animate-fade-in flex min-h-0 flex-1 flex-col">
+            <input
+              ref={ragFileInputRef}
+              type="file"
+              accept={RAG_FILE_ACCEPT}
+              className="hidden"
+              onChange={onRagFileInputChange}
+            />
 
-            <div>
-              {ragChat.length === 0 ? (
-                <p style={{ margin: 'auto', textAlign: 'center', fontSize: '0.85rem', opacity: 0.65, maxWidth: 280 }}>
-                  Ingest a document, then type a question here. Each reply stays in this thread.
+            <div
+              className={`relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-background ${ragDropActive ? 'bg-primary/5' : ''}`}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setRagDropActive(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setRagDropActive(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!e.currentTarget.contains(e.relatedTarget)) setRagDropActive(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setRagDropActive(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) handleRagIngestFile(f);
+              }}
+            >
+              {ragDropActive ? (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary/50 bg-primary/10">
+                  <p className="text-sm font-medium text-primary">Drop file to index</p>
+                </div>
+              ) : null}
+
+              <div className="mx-auto flex min-h-full w-full max-w-4xl flex-1 flex-col px-3 py-4 lg:max-w-5xl xl:max-w-6xl xl:px-8">
+                {ragChat.length === 0 ? (
+                  <div className="flex flex-1 flex-col items-center justify-center pb-32 text-center">
+                    <MessageSquare className="mb-3 h-10 w-10 text-muted-foreground/35" strokeWidth={1.25} aria-hidden />
+                    <p className="max-w-sm text-sm text-muted-foreground">
+                      {ragIndexed ? 'Ask a question below.' : 'Attach a document with + to start.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-6 pb-8">
+                    {ragChat.map((m) => {
+                      if (m.role === 'user') {
+                        return (
+                          <div key={m.id} className="animate-fade-in flex justify-end">
+                            <div className="max-w-[min(100%,36rem)] rounded-3xl bg-primary/12 px-5 py-3 text-[15px] leading-relaxed text-foreground">
+                              {m.content}
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (m.role === 'error') {
+                        return (
+                          <div key={m.id} className="animate-fade-in flex justify-start">
+                            <div className="max-w-[min(100%,40rem)] rounded-2xl border border-destructive/25 bg-destructive/10 px-5 py-3 text-sm text-destructive">
+                              {m.content}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={m.id} className="animate-fade-in flex justify-start">
+                          <div className="max-w-[min(100%,40rem)] space-y-2">
+                            <article className="tech-markdown-doc prd-rag-md text-[15px] leading-relaxed text-foreground">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={techMarkdownComponents}>
+                                {m.content}
+                              </ReactMarkdown>
+                            </article>
+                            {m.meta?.corrected_question ? (
+                              <p className="text-xs text-muted-foreground">
+                                <em>Retrieval query:</em> {m.meta.corrected_question}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={ragChatEndRef} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="shrink-0 border-t border-border/50 bg-background/95 px-4 py-3 backdrop-blur-md sm:px-6">
+              <div className="mx-auto w-full max-w-4xl space-y-3 lg:max-w-5xl xl:max-w-6xl">
+                {ragLastFileName ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex max-w-full items-center gap-2 truncate rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      <FileText className="h-3.5 w-3.5 shrink-0" fill="currentColor" />
+                      <span className="truncate">{ragLastFileName}</span>
+                      {ragIndexed ? (
+                        <span className="shrink-0 text-[10px] uppercase tracking-wide text-primary/80">Indexed</span>
+                      ) : null}
+                    </span>
+                    {ragBusy ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Indexing…
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {ragMsg ? (
+                  <div className="rounded-xl bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">{ragMsg}</div>
+                ) : null}
+
+                <div className="flex items-end gap-2 rounded-[1.75rem] border border-border/60 bg-secondary/25 p-2 shadow-sm focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/15">
+                  <button
+                    type="button"
+                    title="Attach PDF or document"
+                    disabled={ragBusy}
+                    onClick={() => ragFileInputRef.current?.click()}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <Plus className="h-6 w-6 stroke-[2]" aria-hidden />
+                    <span className="sr-only">Attach document</span>
+                  </button>
+                  <textarea
+                    rows={1}
+                    value={ragQuestion}
+                    onChange={(e) => setRagQuestion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (!ragBusy && ragIndexed) handleRagQuery();
+                      }
+                    }}
+                    placeholder={
+                      ragIndexed ? 'Ask anything…' : 'Attach a document with + to start'
+                    }
+                    disabled={!ragIndexed}
+                    className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent py-3 pr-2 text-[15px] leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <Button
+                    variant="warm"
+                    size="icon"
+                    className="h-11 w-11 shrink-0 rounded-full"
+                    onClick={handleRagQuery}
+                    disabled={ragBusy || !ragIndexed || !ragQuestion.trim()}
+                  >
+                    {ragBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                  </Button>
+                </div>
+                <p className="text-center text-[11px] text-muted-foreground">
+                  Enter sends · Shift+Enter newline · BM25 + Chroma + LangGraph (in-memory index on this server)
                 </p>
-              ) : (
-                ragChat.map((m) => {
-                  if (m.role === 'user') {
-                    return (
-                      <div
-                        key={m.id}
-                        style={{
-                          alignSelf: 'flex-end',
-                          maxWidth: '92%',
-                          padding: '10px 14px',
-                          borderRadius: 12,
-                          background: 'rgba(99, 102, 241, 0.18)',
-                          border: '1px solid rgba(99, 102, 241, 0.25)',
-                        }}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <StepIndicator current={step} steps={STEPS} />
+
+            <div className="min-h-[320px]">
+              {serviceTab === 'prd' && step === 'capability' && (
+                <div className="animate-fade-in space-y-4">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-foreground">Choose a capability</h3>
+                    <p className="text-sm text-muted-foreground">Select the type of document you want to generate</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {capabilities.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => selectCapability(c.id)}
+                        className="group flex items-start gap-3 rounded-2xl border border-border/60 bg-card/50 p-4 text-left transition-all duration-300 hover:border-primary/30 hover:bg-card hover:shadow-md active:scale-[0.98]"
                       >
-                        <div style={{ fontSize: '0.72rem', opacity: 0.75, marginBottom: 4 }}>You</div>
-                        <div style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</div>
-                      </div>
-                    );
-                  }
-                  if (m.role === 'error') {
-                    return (
-                      <div
-                        key={m.id}
-                        style={{
-                          alignSelf: 'stretch',
-                          padding: '10px 12px',
-                          borderRadius: 10,
-                          background: 'rgba(185, 28, 28, 0.08)',
-                          border: '1px solid rgba(185, 28, 28, 0.25)',
-                          fontSize: '0.85rem',
-                          color: '#991b1b',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                        }}
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                          {c.id === 'code_summarizer' ? (
+                            <Code2 className="h-5 w-5" fill="currentColor" aria-hidden />
+                          ) : (
+                            <FileText className="h-5 w-5" fill="currentColor" aria-hidden />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-display text-sm font-semibold text-foreground">{c.title}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground line-clamp-3">{c.description}</p>
+                          {c.requires_codebase ? (
+                            <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+                              <FolderArchive className="h-2.5 w-2.5" /> ZIP required
+                            </span>
+                          ) : null}
+                        </div>
+                        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-primary/60" aria-hidden />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {serviceTab === 'prd' && step === 'questions' && selectedCap && selectedCap === 'code_summarizer' && (
+                <div className="animate-fade-in space-y-5">
+                  <div>
+                    <h3 className="font-display flex items-center gap-2 text-lg font-semibold text-foreground">
+                      <Code2 className="h-5 w-5 text-primary" aria-hidden /> Full project code summary
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Summarizes your <strong className="text-foreground">indexed</strong> repository (purpose, tech stack,
+                      architecture, key modules, flows). Upload a ZIP first or paste a{' '}
+                      <code className="rounded bg-secondary px-1 py-0.5 text-xs">project_id</code> you already have.
+                    </p>
+                    <p className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+                      No pasted source needed—the model uses RAG over chunks from your index.
+                    </p>
+                  </div>
+                  <div className="space-y-4">
+                    <label className="space-y-1.5">
+                      <span className="text-sm font-medium text-foreground">Detail level</span>
+                      <select
+                        className={inputFieldClass}
+                        value={csDetail}
+                        onChange={(e) => setCsDetail(e.target.value)}
                       >
-                        {m.content}
-                      </div>
-                    );
-                  }
-                  return (
+                        <option value="short">Short</option>
+                        <option value="medium">Medium</option>
+                        <option value="detailed">Detailed</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1.5">
+                      <span className="text-sm font-medium text-foreground">Indexed project ID</span>
+                      <input
+                        type="text"
+                        className={inputFieldClass}
+                        value={projectId}
+                        onChange={(e) => {
+                          setProjectId(e.target.value);
+                          setStoredProjectId(e.target.value);
+                        }}
+                        placeholder="UUID from Upload / index ZIP"
+                      />
+                    </label>
+                  </div>
+
+                  {genError ? <p className="text-sm text-destructive">{genError}</p> : null}
+                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <Button variant="warm-outline" size="sm" onClick={goCapability}>
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <Button variant="warm-outline" size="sm" onClick={() => setStep('upload')}>
+                      <FileArchive className="h-4 w-4" />
+                      Upload / index ZIP
+                    </Button>
+                    <Button variant="warm" size="sm" disabled={generating} onClick={handleCodeSummarizer}>
+                      {generating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      ) : (
+                        <Zap className="h-4 w-4" fill="currentColor" />
+                      )}
+                      {generating ? 'Summarizing…' : 'Generate full summary'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {serviceTab === 'prd' && step === 'questions' && selectedCap && selectedCap !== 'code_summarizer' && (
+                <div className="animate-fade-in space-y-5">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-foreground">Clarifying questions</h3>
+                    <p className="text-sm text-muted-foreground">Fill in the required details below</p>
+                  </div>
+                  {currentQuestions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No extra questions for this capability. Continue.</p>
+                  ) : (
+                    <div className="max-h-[400px] space-y-4 overflow-y-auto pr-1">
+                      {currentQuestions.map((q) => (
+                        <div key={q.id} className="space-y-1.5">
+                          <label className="text-sm font-medium text-foreground">
+                            {q.label}
+                            {q.required ? <span className="ml-1 text-accent">*</span> : null}
+                          </label>
+                          {q.type === 'textarea' ? (
+                            <textarea
+                              className={`${textareaFieldClass} min-h-[96px]`}
+                              rows={4}
+                              value={answers[q.id] || ''}
+                              onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                              placeholder={q.placeholder || ''}
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              className={inputFieldClass}
+                              value={answers[q.id] || ''}
+                              onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                              placeholder={q.placeholder || ''}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {genError ? <p className="text-sm text-destructive">{genError}</p> : null}
+                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <Button variant="warm-outline" size="sm" onClick={goCapability}>
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <Button variant="warm" size="sm" onClick={handleNextFromQuestions}>
+                      Continue <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {serviceTab === 'prd' && step === 'upload' && (
+                <div className="animate-fade-in space-y-5">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-foreground">Upload project</h3>
+                    <p className="text-sm text-muted-foreground">Upload your project as a .zip file for indexing</p>
+                  </div>
+                  {selectedCap === 'code_summarizer' ? (
+                    <p className="text-sm text-muted-foreground">
+                      After indexing, you return to <strong className="text-foreground">Full project code summary</strong> with{' '}
+                      <code className="rounded bg-secondary px-1 py-0.5 text-xs">project_id</code> set.
+                    </p>
+                  ) : null}
+                  <p className="text-sm text-muted-foreground">
+                    Code is chunked, embedded (local GGUF or Azure depending on server config), then indexed with FAISS. Large
+                    folders like <code className="rounded bg-secondary px-1 py-0.5 text-xs">node_modules</code> are skipped.
+                    Indexing can take several minutes for large repos.
+                  </p>
+                  {projectId ? (
+                    <p className="text-xs text-muted-foreground">
+                      Current indexed project: <code className="rounded bg-secondary px-1.5 py-0.5">{projectId.slice(0, 8)}…</code>{' '}
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={clearProject}>
+                        Clear
+                      </Button>
+                    </p>
+                  ) : null}
+                  <div className="space-y-2">
+                    <input
+                      ref={zipFileInputRef}
+                      type="file"
+                      accept=".zip,application/zip"
+                      className="hidden"
+                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    />
                     <div
-                      key={m.id}
-                      style={{
-                        alignSelf: 'flex-start',
-                        width: '100%',
-                        maxWidth: '100%',
-                        padding: '12px 14px',
-                        borderRadius: 12,
-                        background: 'rgba(255,255,255,0.55)',
-                        border: '1px solid rgba(0,0,0,0.06)',
-                      }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => zipFileInputRef.current?.click()}
+                      onKeyDown={(e) => e.key === 'Enter' && zipFileInputRef.current?.click()}
+                      className="flex cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-border/60 bg-secondary/20 p-8 text-center transition-all duration-300 hover:border-primary/40 hover:bg-secondary/40"
                     >
-                      <div style={{ fontSize: '0.72rem', opacity: 0.7, marginBottom: 6 }}>Assistant</div>
-                      <article className="tech-markdown-doc prd-document" style={{ fontSize: '0.88rem' }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={techMarkdownComponents}>
-                          {m.content}
-                        </ReactMarkdown>
-                      </article>
-                      {m.meta?.corrected_question ? (
-                        <p style={{ marginTop: 10, fontSize: '0.78rem', opacity: 0.82 }}>
-                          <em>Retrieval query:</em> {m.meta.corrected_question}
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <FolderArchive className="h-6 w-6" fill="currentColor" />
+                      </div>
+                      {uploadFile ? (
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">{uploadFile.name}</p>
+                          <p className="text-xs text-muted-foreground">Click to replace</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">Drop your .zip file here</p>
+                          <p className="text-xs text-muted-foreground">or click to browse</p>
+                        </div>
+                      )}
+                    </div>
+                    {uploadFile ? (
+                      <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setUploadFile(null)}>
+                        <Trash2 className="h-3 w-3" /> Clear file
+                      </Button>
+                    ) : null}
+                  </div>
+                  {uploadMsg ? <div className="rounded-xl bg-secondary/40 px-4 py-2 text-sm text-muted-foreground">{uploadMsg}</div> : null}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button variant="warm-outline" size="sm" onClick={() => setStep('questions')}>
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <Button variant="warm" size="sm" disabled={uploading} onClick={handleUpload}>
+                      {uploading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" />}
+                      {uploading ? 'Indexing…' : 'Upload & index'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {serviceTab === 'prd' && step === 'generate' && selectedCap !== 'code_summarizer' && (
+                <div className="animate-fade-in space-y-5">
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-foreground">Ready to generate</h3>
+                    <p className="text-sm text-muted-foreground">Review your inputs and generate</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/50 bg-secondary/30 p-5">
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        <span className="font-medium text-foreground">Capability:</span>{' '}
+                        <span className="text-muted-foreground">{capabilities.find((c) => c.id === selectedCap)?.title}</span>
+                      </p>
+                      {needsUpload ? (
+                        <p>
+                          <span className="font-medium text-foreground">Codebase:</span>{' '}
+                          {projectId ? (
+                            <code className="rounded bg-card px-1.5 py-0.5 text-xs">{projectId.slice(0, 8)}…</code>
+                          ) : (
+                            <span className="text-destructive">not indexed</span>
+                          )}
                         </p>
                       ) : null}
                     </div>
-                  );
-                })
-              )}
-              <div ref={ragChatEndRef} />
-            </div>
-          </div>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
-            <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Your question</span>
-            <textarea
-              className="input-like"
-              rows={3}
-              value={ragQuestion}
-              onChange={(e) => setRagQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!ragBusy && ragIndexed) handleRagQuery();
-                }
-              }}
-              placeholder={ragIndexed ? 'Ask about this document…' : 'Upload a document first'}
-              disabled={!ragIndexed}
-              style={{ fontFamily: 'inherit', resize: 'vertical', borderRadius: 10, opacity: ragIndexed ? 1 : 0.65 }}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={ragBusy || !ragIndexed || !ragQuestion.trim()}
-            onClick={handleRagQuery}
-          >
-            {ragBusy ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-            {ragBusy ? ' Querying…' : ' Send'}
-          </button>
-          {ragMsg ? (
-            <pre
-              style={{
-                marginTop: 10,
-                marginBottom: 0,
-                padding: 10,
-                background: 'rgba(0,0,0,0.04)',
-                borderRadius: 8,
-                fontSize: '0.78rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {ragMsg}
-            </pre>
-          ) : null}
-        </div>
-      )}
-
-      {serviceTab === 'prd' && step === 'capability' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h3 style={{ marginTop: 0 }}>1. Choose capability</h3>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {capabilities.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => selectCapability(c.id)}
-                className="btn-primary"
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  textAlign: 'left',
-                  padding: '14px 18px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(99,102,241,0.35)',
-                  background: 'rgba(99,102,241,0.08)',
-                  cursor: 'pointer',
-                  color: 'inherit',
-                  fontSize: '0.95rem',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  {c.id === 'code_summarizer' ? (
-                    <Code2 size={22} style={{ flexShrink: 0, marginTop: 2, opacity: 0.9 }} aria-hidden />
+                  </div>
+                  {genError ? <p className="text-sm text-destructive">{genError}</p> : null}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {!needsUpload ? (
+                      <Button variant="warm-outline" size="sm" onClick={() => setStep('questions')}>
+                        <ChevronLeft className="h-4 w-4" /> Back
+                      </Button>
+                    ) : (
+                      <Button variant="warm-outline" size="sm" onClick={() => setStep('upload')}>
+                        <ChevronLeft className="h-4 w-4" /> Back to upload
+                      </Button>
+                    )}
+                    <Button variant="warm" size="sm" disabled={generating} onClick={handleGenerate}>
+                      {generating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      ) : (
+                        <Zap className="h-4 w-4" fill="currentColor" />
+                      )}
+                      {generating ? 'Generating…' : 'Generate'}
+                    </Button>
+                  </div>
+                  {generating ? (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Local models can take several minutes for long documents. Keep this tab open—the request timeout is 10
+                      minutes. Backend logs show <code className="rounded bg-secondary px-1 text-[11px]">PRD platform generate started</code>{' '}
+                      then <code className="rounded bg-secondary px-1 text-[11px]">finished</code> when done.
+                    </p>
                   ) : null}
-                  <span>
-                    <strong>{c.title}</strong>
-                    <div style={{ fontSize: '0.82rem', opacity: 0.85, marginTop: 4 }}>{c.description}</div>
-                  </span>
-                </span>
-                <ChevronRight size={20} />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+                </div>
+              )}
 
-      {serviceTab === 'prd' && step === 'questions' && selectedCap && selectedCap === 'code_summarizer' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Code2 size={22} /> 2. Full project code summary
-          </h3>
-          <p style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: 12 }}>
-            Summarizes your <strong>indexed</strong> repository (purpose, tech stack, architecture, key modules, flows). Upload a ZIP first or paste a{' '}
-            <code>project_id</code> you already have.
-          </p>
-          <p
-            style={{
-              fontSize: '0.88rem',
-              opacity: 0.88,
-              marginBottom: 16,
-              padding: '10px 12px',
-              background: 'rgba(99,102,241,0.06)',
-              borderRadius: 8,
-              border: '1px solid rgba(99,102,241,0.15)',
-            }}
-          >
-            No pasted source needed—the model uses RAG over chunks from your index.
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: '0.85rem' }}>Detail level</span>
-              <select
-                className="input-like"
-                value={csDetail}
-                onChange={(e) => setCsDetail(e.target.value)}
-                style={{ padding: 8, borderRadius: 8, minWidth: 140 }}
-              >
-                <option value="short">Short</option>
-                <option value="medium">Medium</option>
-                <option value="detailed">Detailed</option>
-              </select>
-            </label>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span>Indexed project ID</span>
-              <input
-                type="text"
-                className="input-like"
-                value={projectId}
-                onChange={(e) => {
-                  setProjectId(e.target.value);
-                  setStoredProjectId(e.target.value);
-                }}
-                placeholder="UUID from Upload / index ZIP"
-                style={{ padding: 10, borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)' }}
-              />
-            </label>
-          </div>
-
-          {genError ? <p style={{ color: '#b91c1c', marginTop: 12 }}>{genError}</p> : null}
-          <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" className="btn-secondary" onClick={goCapability} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ChevronLeft size={18} /> Back
-            </button>
-            <button type="button" className="btn-secondary" onClick={() => setStep('upload')}>
-              <FileArchive size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-              Upload / index ZIP
-            </button>
-            <button type="button" className="btn-primary" disabled={generating} onClick={handleCodeSummarizer}>
-              {generating ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-              {generating ? ' Summarizing…' : ' Generate full summary'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {serviceTab === 'prd' && step === 'questions' && selectedCap && selectedCap !== 'code_summarizer' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h3 style={{ marginTop: 0 }}>2. Clarifying questions</h3>
-          {currentQuestions.length === 0 ? (
-            <p>No extra questions for this capability. Continue.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {currentQuestions.map((q) => (
-                <label key={q.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span>
-                    {q.label}
-                    {q.required ? <span style={{ color: '#b91c1c' }}> *</span> : null}
-                  </span>
-                  {q.type === 'textarea' ? (
-                    <textarea
-                      className="input-like"
-                      rows={4}
-                      value={answers[q.id] || ''}
-                      onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                      placeholder={q.placeholder || ''}
-                      style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)' }}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      className="input-like"
-                      value={answers[q.id] || ''}
-                      onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                      placeholder={q.placeholder || ''}
-                      style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)' }}
-                    />
-                  )}
-                </label>
-              ))}
+              {serviceTab === 'prd' && step === 'result' && result && (
+                <div className="animate-fade-in space-y-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-primary" fill="currentColor" aria-hidden />
+                      <h3 className="font-display text-lg font-semibold text-foreground">Document generated</h3>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="warm" size="sm" onClick={downloadText} disabled={!result.markdown}>
+                        <Download className="h-4 w-4" /> {isPrdPlain ? 'Download text' : 'Download Markdown'}
+                      </Button>
+                      {canDownloadPdf ? (
+                        <Button variant="warm-outline" size="sm" onClick={downloadPdf}>
+                          <FileText className="h-4 w-4" /> Download PDF
+                        </Button>
+                      ) : null}
+                      {hasDiagramDownload ? (
+                        <Button variant="warm-outline" size="sm" onClick={downloadDiagram}>
+                          <ImageDown className="h-4 w-4" /> {result.svg_base64 ? 'Download SVG' : 'Download PNG'}
+                        </Button>
+                      ) : null}
+                      <Button variant="glass" size="sm" onClick={resetFlow}>
+                        <RotateCcw className="h-4 w-4" /> New run
+                      </Button>
+                    </div>
+                  </div>
+                  {result.message ? <p className="prd-result-message">{result.message}</p> : null}
+                  {result.svg_base64 ? (
+                    <div className="prd-diagram-frame">
+                      <img src={`data:image/svg+xml;base64,${result.svg_base64}`} alt="Diagram" />
+                    </div>
+                  ) : null}
+                  {result.png_base64 ? (
+                    <div className="prd-png-wrap">
+                      <img src={`data:image/png;base64,${result.png_base64}`} alt="Diagram" />
+                    </div>
+                  ) : null}
+                  <div className="rounded-2xl border border-border/50 bg-card p-5">
+                    {prdParsed ? (
+                      <article className="prd-document !mt-0 !max-h-none border-0 bg-transparent p-0 shadow-none">
+                        <h1 className="prd-document-title">{prdParsed.title}</h1>
+                        {prdParsed.sections.map((sec) => (
+                          <section key={sec.heading} className="prd-document-section">
+                            <h2 className="prd-document-section-title font-display">{formatSectionHeading(sec.heading)}</h2>
+                            <ul className="prd-document-list">
+                              {sec.bullets.map((b, idx) => {
+                                const text = typeof b === 'string' ? b : b.text;
+                                const depth = typeof b === 'string' ? 0 : b.depth || 0;
+                                return (
+                                  <li
+                                    key={`${sec.heading}-${idx}`}
+                                    className={`prd-document-li${depth ? ' prd-document-li--nested' : ''}`}
+                                    style={depth ? { marginLeft: `${depth}rem` } : undefined}
+                                  >
+                                    {text}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </section>
+                        ))}
+                      </article>
+                    ) : isCodeSummarizer ? (
+                      <article className="tech-markdown-doc prd-result-article !mt-0 !max-h-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={techMarkdownComponents}>
+                          {result.markdown || '_No summary returned._'}
+                        </ReactMarkdown>
+                        {result.csMetadata && Object.keys(result.csMetadata).length > 0 ? (
+                          <>
+                            <h3 className="prd-document-section-title prd-metadata-heading font-display">Metadata</h3>
+                            <pre className="prd-metadata-pre">{JSON.stringify(result.csMetadata, null, 2)}</pre>
+                          </>
+                        ) : null}
+                      </article>
+                    ) : isMarkdownDocCap ? (
+                      <article className="tech-markdown-doc prd-result-article !mt-0 !max-h-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={techMarkdownComponents}>
+                          {result.markdown || ''}
+                        </ReactMarkdown>
+                      </article>
+                    ) : (
+                      <pre className="prd-output-pre !mt-0 rounded-xl bg-secondary/50">{result.markdown || '(no text)'}</pre>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          {genError ? <p style={{ color: '#b91c1c', marginTop: 12 }}>{genError}</p> : null}
-          <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
-            <button type="button" className="btn-secondary" onClick={goCapability} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ChevronLeft size={18} /> Back
-            </button>
-            <button type="button" className="btn-primary" onClick={handleNextFromQuestions}>
-              Continue <ChevronRight size={18} style={{ verticalAlign: 'middle' }} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {serviceTab === 'prd' && step === 'upload' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h3 style={{ marginTop: 0 }}>3. Upload project (.zip)</h3>
-          {selectedCap === 'code_summarizer' ? (
-            <p style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: 8 }}>
-              After indexing, you return to <strong>Full project code summary</strong> with <code>project_id</code> set.
-            </p>
-          ) : null}
-          <p style={{ fontSize: '0.9rem', opacity: 0.9 }}>
-            Code is chunked, embedded (local GGUF or Azure depending on server config), then indexed with FAISS. Large folders like <code>node_modules</code> are skipped. Indexing can take several minutes for large repos.
-          </p>
-          {projectId ? (
-            <p style={{ fontSize: '0.85rem' }}>
-              Current indexed project: <code>{projectId.slice(0, 8)}…</code>{' '}
-              <button type="button" className="btn-secondary" style={{ marginLeft: 8 }} onClick={clearProject}>
-                Clear
-              </button>
-            </p>
-          ) : null}
-          <label
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 12,
-              padding: 32,
-              border: '2px dashed rgba(99,102,241,0.4)',
-              borderRadius: 12,
-              cursor: 'pointer',
-              marginTop: 12,
-            }}
-          >
-            <FileArchive size={40} />
-            <span>Select ZIP archive</span>
-            <input
-              type="file"
-              accept=".zip,application/zip"
-              style={{ display: 'none' }}
-              onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-            />
-          </label>
-          {uploadFile ? <p style={{ fontSize: '0.9rem' }}>Selected: {uploadFile.name}</p> : null}
-          {uploadMsg ? <p style={{ marginTop: 8, fontSize: '0.9rem' }}>{uploadMsg}</p> : null}
-          <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
-            <button type="button" className="btn-secondary" onClick={() => setStep('questions')}>
-              <ChevronLeft size={18} style={{ verticalAlign: 'middle' }} /> Back
-            </button>
-            <button type="button" className="btn-primary" disabled={uploading} onClick={handleUpload}>
-              {uploading ? <Loader2 className="animate-spin" size={18} /> : null}
-              {uploading ? ' Indexing…' : ' Upload & index'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {serviceTab === 'prd' && step === 'generate' && selectedCap !== 'code_summarizer' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h3 style={{ marginTop: 0 }}>4. Generate</h3>
-          <p style={{ fontSize: '0.9rem' }}>
-            Capability: <strong>{capabilities.find((c) => c.id === selectedCap)?.title}</strong>
-          </p>
-          {needsUpload ? (
-            <p style={{ fontSize: '0.85rem' }}>
-              Codebase: {projectId ? <code>{projectId.slice(0, 8)}…</code> : <span style={{ color: '#b91c1c' }}>not indexed</span>}
-            </p>
-          ) : null}
-          {genError ? <p style={{ color: '#b91c1c' }}>{genError}</p> : null}
-          <div style={{ display: 'flex', gap: 12, marginTop: 16, flexWrap: 'wrap' }}>
-            {!needsUpload ? (
-              <button type="button" className="btn-secondary" onClick={() => setStep('questions')}>
-                Back
-              </button>
-            ) : (
-              <button type="button" className="btn-secondary" onClick={() => setStep('upload')}>
-                Back to upload
-              </button>
-            )}
-            <button type="button" className="btn-primary" disabled={generating} onClick={handleGenerate}>
-              {generating ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-              {generating ? ' Generating…' : ' Generate'}
-            </button>
-          </div>
-          {generating ? (
-            <p style={{ marginTop: 12, fontSize: '0.85rem', opacity: 0.85, maxWidth: '42rem' }}>
-              Local models can take several minutes for long documents. Keep this tab open—the request timeout is
-              10 minutes. Backend logs show
-              <code style={{ margin: '0 4px' }}>PRD platform generate started</code>
-              then
-              <code style={{ margin: '0 4px' }}>finished</code>
-              when done.
-            </p>
-          ) : null}
-        </div>
-      )}
-
-      {serviceTab === 'prd' && step === 'result' && result && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <h3 style={{ margin: 0 }}>5. Output</h3>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="btn-secondary" onClick={downloadText} disabled={!result.markdown}>
-                <Download size={18} style={{ verticalAlign: 'middle' }} />{' '}
-                {isPrdPlain ? 'Download text' : 'Download Markdown'}
-              </button>
-              {canDownloadPdf ? (
-                <button type="button" className="btn-secondary" onClick={downloadPdf}>
-                  <FileText size={18} style={{ verticalAlign: 'middle' }} /> Download PDF
-                </button>
-              ) : null}
-              {hasDiagramDownload ? (
-                <button type="button" className="btn-secondary" onClick={downloadDiagram}>
-                  <ImageDown size={18} style={{ verticalAlign: 'middle' }} />{' '}
-                  {result.svg_base64 ? 'Download SVG' : 'Download PNG'}
-                </button>
-              ) : null}
-              <button type="button" className="btn-secondary" onClick={resetFlow}>
-                <RefreshCw size={18} style={{ verticalAlign: 'middle' }} /> New run
-              </button>
-            </div>
-          </div>
-          {result.message ? <p style={{ fontSize: '0.9rem', opacity: 0.9 }}>{result.message}</p> : null}
-          {result.svg_base64 ? (
-            <div style={{ marginTop: 16, border: '1px solid rgba(0,0,0,0.1)', borderRadius: 8, overflow: 'auto', background: '#fff' }}>
-              <img
-                src={`data:image/svg+xml;base64,${result.svg_base64}`}
-                alt="Diagram"
-                style={{ maxWidth: '100%', height: 'auto', display: 'block' }}
-              />
-            </div>
-          ) : null}
-          {result.png_base64 ? (
-            <div style={{ marginTop: 16 }}>
-              <img
-                src={`data:image/png;base64,${result.png_base64}`}
-                alt="Diagram"
-                style={{ maxWidth: '100%', height: 'auto' }}
-              />
-            </div>
-          ) : null}
-          {prdParsed ? (
-            <article className="prd-document">
-              <h1 className="prd-document-title">{prdParsed.title}</h1>
-              {prdParsed.sections.map((sec) => (
-                <section key={sec.heading} className="prd-document-section">
-                  <h2 className="prd-document-section-title">{formatSectionHeading(sec.heading)}</h2>
-                  <ul className="prd-document-list">
-                    {sec.bullets.map((b, idx) => {
-                      const text = typeof b === 'string' ? b : b.text;
-                      const depth = typeof b === 'string' ? 0 : b.depth || 0;
-                      return (
-                        <li
-                          key={`${sec.heading}-${idx}`}
-                          className={`prd-document-li${depth ? ' prd-document-li--nested' : ''}`}
-                          style={depth ? { marginLeft: `${depth}rem` } : undefined}
-                        >
-                          {text}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              ))}
-            </article>
-          ) : isCodeSummarizer ? (
-            <article className="tech-markdown-doc prd-document" style={{ marginTop: 16 }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={techMarkdownComponents}>
-                {result.markdown || '_No summary returned._'}
-              </ReactMarkdown>
-              {result.csMetadata && Object.keys(result.csMetadata).length > 0 ? (
-                <>
-                  <h3 className="prd-document-section-title" style={{ marginTop: 24 }}>
-                    Metadata
-                  </h3>
-                  <pre
-                    style={{
-                      marginTop: 8,
-                      padding: 14,
-                      background: 'rgba(0,0,0,0.04)',
-                      borderRadius: 8,
-                      fontSize: '0.8rem',
-                      overflow: 'auto',
-                      maxHeight: 320,
-                    }}
-                  >
-                    {JSON.stringify(result.csMetadata, null, 2)}
-                  </pre>
-                </>
-              ) : null}
-            </article>
-          ) : isMarkdownDocCap ? (
-            <article className="tech-markdown-doc prd-document">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={techMarkdownComponents}>
-                {result.markdown || ''}
-              </ReactMarkdown>
-            </article>
-          ) : (
-            <pre
-              style={{
-                marginTop: 16,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontSize: '0.88rem',
-                lineHeight: 1.5,
-                padding: 16,
-                background: 'rgba(0,0,0,0.04)',
-                borderRadius: 8,
-                maxHeight: 480,
-                overflow: 'auto',
-              }}
-            >
-              {result.markdown || '(no text)'}
-            </pre>
-          )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
