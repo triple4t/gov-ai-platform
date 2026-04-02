@@ -16,7 +16,7 @@ export default function Header() {
           />
           <div>
             <h1 className="font-display text-lg font-bold tracking-tight text-foreground">DocuAtlas</h1>
-            <p className="text-xs text-muted-foreground">Codebase Upload · RAG · Document Generation</p>
+            <p className="text-xs text-muted-foreground">Chat · RAG · Document generation</p>
           </div>
         </div>
 

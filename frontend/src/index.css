@@ -225,8 +225,8 @@
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: calc(var(--radius) + 4px);
-  max-height: min(70vh, 640px);
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
   text-align: left;
 }
 
@@ -396,8 +396,8 @@
 
 .prd-result-article {
   margin-top: 1rem;
-  max-height: min(70vh, 640px);
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
 }
 
 .prd-rag-md {
