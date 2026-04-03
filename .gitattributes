@@ -1,0 +1,2 @@
+# Shell scripts must use LF so Linux/bash accept `set -o pipefail` etc.
+*.sh text eol=lf
