@@ -16,6 +16,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 
 from app.advanced_rag.file_ingest import extract_text_for_rag
+from app.core.config import settings
 
 # ---- LangGraph ----
 from langgraph.graph import StateGraph, START, END
@@ -1654,9 +1655,6 @@ async def rag_ingest(payload: IngestRequest):
         raise HTTPException(status_code=500, detail=f"Ingest failed: {str(e)}")
 
 
-_RAG_INGEST_FILE_MAX_MB = int(os.getenv("RAG_INGEST_FILE_MAX_MB", "40"))
-
-
 @rag_router.post("/ingest-file", response_model=IngestResponse)
 async def rag_ingest_file(
     file: UploadFile = File(...),
@@ -1670,12 +1668,13 @@ async def rag_ingest_file(
     if not did:
         raise HTTPException(status_code=400, detail="document_id cannot be empty.")
 
-    max_b = max(1, _RAG_INGEST_FILE_MAX_MB) * 1024 * 1024
+    max_mb = max(1, settings.RAG_INGEST_FILE_MAX_MB)
+    max_b = max_mb * 1024 * 1024
     raw = await file.read()
     if len(raw) > max_b:
         raise HTTPException(
             status_code=413,
-            detail=f"File exceeds {_RAG_INGEST_FILE_MAX_MB} MB limit.",
+            detail=f"File exceeds {max_mb} MB limit.",
         )
 
     try:

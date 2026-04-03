@@ -71,6 +71,19 @@ if [[ -d "${ROOT}/frontend/dist" ]]; then
   chmod -R a+rX "${ROOT}/frontend/dist"
 fi
 
+NGX_LIMITS="${ROOT}/scripts/nginx/gov-ai-proxy-limits.conf"
+if [[ -f "${NGX_LIMITS}" ]]; then
+  echo "==> Nginx: proxy limits snippet (large uploads + long LLM — avoids 413/504)"
+  if sudo mkdir -p /etc/nginx/snippets \
+    && sudo install -m 644 "${NGX_LIMITS}" /etc/nginx/snippets/gov-ai-proxy-limits.conf; then
+    echo "    Installed /etc/nginx/snippets/gov-ai-proxy-limits.conf"
+    echo "    If not already present, add inside the server {} or /api location that proxy_passes to Uvicorn:"
+    echo "      include /etc/nginx/snippets/gov-ai-proxy-limits.conf;"
+  else
+    echo "WARN: Could not install nginx snippet (need sudo). Copy manually: ${NGX_LIMITS}" >&2
+  fi
+fi
+
 if systemctl is-active --quiet gov-ai-api.service 2>/dev/null; then
   echo "==> systemctl restart gov-ai-api.service"
   sudo systemctl restart gov-ai-api.service

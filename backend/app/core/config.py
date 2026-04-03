@@ -201,6 +201,8 @@ class Settings:
     PRD_TECH_DOCS_PRIORITY_MAX_CHARS: int = int(os.getenv("PRD_TECH_DOCS_PRIORITY_MAX_CHARS", str(12_000)))
     PRD_EMBEDDING_DIM_DEFAULT: int = int(os.getenv("PRD_EMBEDDING_DIM", "1536"))
     PRD_PLATFORM_RETENTION_DAYS: int = int(os.getenv("PRD_PLATFORM_RETENTION_DAYS", "7"))
+    # /api/v1/rag/ingest-file and /api/v1/prd-platform/rag/ingest-file — keep ≤ nginx client_max_body_size (scripts/nginx/gov-ai-proxy-limits.conf).
+    RAG_INGEST_FILE_MAX_MB: int = int(os.getenv("RAG_INGEST_FILE_MAX_MB", "64"))
 
     # --- Neo4j (optional: import graph from PRD ZIP / CDG sync) ---
     NEO4J_ENABLED: bool = os.getenv("NEO4J_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
