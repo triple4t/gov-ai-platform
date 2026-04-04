@@ -505,10 +505,14 @@ class ProjectBatchIngestRequest(BaseModel):
     items: List[ProjectBatchItem] = Field(..., min_length=1, max_length=500)
 
 
+_CONVERSATION_SUMMARY_MAX = 32_768
+
+
 class QueryRequest(BaseModel):
     question: str
     document_id: str
     top_k: Optional[int] = FINAL_TOP_K
+    conversation_summary: Optional[str] = Field(default=None, max_length=_CONVERSATION_SUMMARY_MAX)
 
 class QueryResponse(BaseModel):
     answer: str
@@ -1263,14 +1267,24 @@ def hybrid_retrieve(
 # ===========================================================================
 
 class RAGState(TypedDict):
-    question:           str
-    document_id:        str
-    top_k:              int
-    documents:          List[str]
-    doc_scores:         List[float]
-    relevant_docs:      List[str]
-    answer:             str
-    retry_count:        int
+    question:               str
+    document_id:            str
+    top_k:                  int
+    conversation_summary:   str
+    documents:              List[str]
+    doc_scores:             List[float]
+    relevant_docs:          List[str]
+    answer:                 str
+    retry_count:            int
+
+
+def _effective_rag_question(conversation_summary: str, question: str) -> str:
+    """Combine running summary with the current turn for retrieval / grading (anaphora, follow-ups)."""
+    s = (conversation_summary or "").strip()
+    q = (question or "").strip()
+    if not s:
+        return q
+    return f"{s}\n\nCurrent question: {q}"
 
 
 # ===========================================================================
@@ -1282,7 +1296,7 @@ def node_hybrid_retrieve(state: RAGState) -> RAGState:
     Node 1: Hybrid retrieval — BM25 ∥ ChromaDB → RRF fusion.
     Uses the question for retrieval.
     """
-    query       = state["question"]
+    query       = _effective_rag_question(state.get("conversation_summary") or "", state["question"])
     document_id = state["document_id"]
     top_k       = state["top_k"]
 
@@ -1299,7 +1313,7 @@ def node_grade_documents(state: RAGState) -> RAGState:
     Node 2: Grade each retrieved chunk for relevance using Qwen3 GGUF (PARALLEL).
     Irrelevant chunks are filtered out before answer generation.
     """
-    question  = state["question"]
+    question  = _effective_rag_question(state.get("conversation_summary") or "", state["question"])
     documents = state["documents"]
 
     print(f"\n[Node: grade_documents] Grading {len(documents)} chunks in parallel...")
@@ -1353,6 +1367,7 @@ def node_generate_answer(state: RAGState) -> RAGState:
     Node 3: Generate the final answer from relevant chunks using Qwen3 GGUF.
     """
     question      = state["question"]
+    summary       = (state.get("conversation_summary") or "").strip()
     relevant_docs = state["relevant_docs"]
 
     print(f"\n[Node: generate] Generating answer from {len(relevant_docs)} relevant chunks...")
@@ -1364,6 +1379,12 @@ def node_generate_answer(state: RAGState) -> RAGState:
     # Keep assembled RAG context within MAX_RAG_CONTEXT_CHARS (~64k default)
     if len(context) > MAX_RAG_CONTEXT_CHARS:
         context = context[:MAX_RAG_CONTEXT_CHARS] + "\n\n[...context truncated for length...]"
+
+    summary_block = (
+        f"Conversation summary (for follow-up questions):\n{summary}\n\n"
+        if summary
+        else ""
+    )
 
     try:
         answer = _call_rag_llm(
@@ -1377,6 +1398,7 @@ def node_generate_answer(state: RAGState) -> RAGState:
                 "'I cannot find this information in the document.'"
             ),
             user_content=(
+                f"{summary_block}"
                 f"Question: {question}\n\n"
                 f"Context:\n{context}\n\n"
                 "Answer the question based only on the context above."
@@ -1396,11 +1418,17 @@ def node_rewrite_query(state: RAGState) -> RAGState:
     Aims to paraphrase / disambiguate to improve retrieval on the next attempt.
     """
     question = state["question"]
+    summary  = (state.get("conversation_summary") or "").strip()
     retry    = state["retry_count"]
 
     print(f"\n[Node: rewrite_query] Retry #{retry+1} — rewriting query...")
 
     try:
+        rewrite_user = (
+            f"Conversation so far (summary):\n{summary}\n\nOriginal query: {question}"
+            if summary
+            else f"Original query: {question}"
+        )
         rewritten = _call_rag_llm(
             system_prompt=(
                 "You are a query rewriter. "
@@ -1409,7 +1437,7 @@ def node_rewrite_query(state: RAGState) -> RAGState:
                 "to improve document retrieval. Do NOT output a list of synonyms. Just a single natural question or keyword phrase. "
                 "Return ONLY the rewritten query — no explanation."
             ),
-            user_content=f"Original query: {question}",
+            user_content=rewrite_user,
             max_tokens=256,
         )
         rewritten = rewritten.strip() or question
@@ -1583,23 +1611,25 @@ def run_artifact_generation(
 
 
 def run_rag_pipeline(
-    question:    str,
-    document_id: str,
-    top_k:       int = FINAL_TOP_K,
+    question:               str,
+    document_id:            str,
+    top_k:                  int = FINAL_TOP_K,
+    conversation_summary:   str = "",
 ) -> RAGState:
     """
     Run the full LangGraph RAG pipeline synchronously.
     Returns the final state dict.
     """
     initial_state: RAGState = {
-        "question":      question,
-        "document_id":   document_id,
-        "top_k":         top_k,
-        "documents":     [],
-        "doc_scores":    [],
-        "relevant_docs": [],
-        "answer":        "",
-        "retry_count":   0,
+        "question":             question,
+        "document_id":          document_id,
+        "top_k":                top_k,
+        "conversation_summary": (conversation_summary or "").strip(),
+        "documents":            [],
+        "doc_scores":           [],
+        "relevant_docs":        [],
+        "answer":               "",
+        "retry_count":          0,
     }
 
     final_state = _rag_graph.invoke(initial_state)
@@ -1813,14 +1843,19 @@ async def rag_query(payload: QueryRequest):
     print(f"\n🤔 /rag/query | doc='{doc_id}' | question='{question[:80]}'")
     t0 = time.time()
 
+    summary_in = (payload.conversation_summary or "").strip()
+
     try:
         loop = asyncio.get_event_loop()
         final_state: RAGState = await loop.run_in_executor(
             None,
-            run_rag_pipeline,
-            question,
-            doc_id,
-            payload.top_k or FINAL_TOP_K,
+            partial(
+                run_rag_pipeline,
+                question,
+                doc_id,
+                payload.top_k or FINAL_TOP_K,
+                summary_in,
+            ),
         )
     except Exception as e:
         print(f"❌ RAG pipeline error: {e}")

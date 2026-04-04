@@ -8,6 +8,7 @@ import {
   LayoutTemplate,
   Network,
   Search,
+  Bot,
 } from 'lucide-react';
 
 const iconClass = 'h-5 w-5 shrink-0 text-zinc-400';
@@ -38,6 +39,7 @@ function MenuIcon({ id }) {
 export default function ServicePlusMenu({
   isOpen,
   onClose,
+  onSelectChatbot,
   onSelectCapability,
   onSelectHybridRag,
   capabilities,
@@ -73,6 +75,18 @@ export default function ServicePlusMenu({
       aria-label="Choose a service"
       className="absolute bottom-full left-0 z-50 mb-2 w-[min(100vw-1.5rem,18rem)] rounded-2xl border border-zinc-700/90 bg-zinc-900 py-1.5 shadow-2xl ring-1 ring-black/20"
     >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onSelectChatbot?.();
+        }}
+        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-zinc-100 transition-colors hover:bg-zinc-800"
+      >
+        <Bot className={iconClass} aria-hidden />
+        <span className="leading-snug">chatbot</span>
+      </button>
+      <div className="my-1.5 h-px bg-zinc-700/80" role="separator" />
       {(capabilities || []).map((c) => (
         <button
           key={c.id}

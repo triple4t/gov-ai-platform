@@ -41,6 +41,38 @@ function makeRagSessionId() {
   return `doc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
+const STORAGE_CHATBOT_THREAD_ID = 'docu-atlas-chatbot-thread-id';
+const STORAGE_RAG_DOC_ID = 'docu-atlas-rag-document-id';
+/** Roll up conversation context after this many user+assistant messages since the last summary. */
+const ROLLUP_MESSAGE_THRESHOLD = 15;
+
+function getOrCreateRagDocumentId() {
+  try {
+    const s = localStorage.getItem(STORAGE_RAG_DOC_ID);
+    if (s?.trim()) return s.trim();
+    const id = makeRagSessionId();
+    localStorage.setItem(STORAGE_RAG_DOC_ID, id);
+    return id;
+  } catch {
+    return makeRagSessionId();
+  }
+}
+
+function getStoredOrCreateChatbotThreadId() {
+  try {
+    const s = localStorage.getItem(STORAGE_CHATBOT_THREAD_ID);
+    if (s?.trim()) return s.trim();
+    const id =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `cb_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    localStorage.setItem(STORAGE_CHATBOT_THREAD_ID, id);
+    return id;
+  } catch {
+    return `cb_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  }
+}
+
 /** Capabilities whose output is long-form markdown: render as article + PDF. */
 const MARKDOWN_DOC_CAPS = new Set(['tech_docs', 'architecture', 'code_review', 'sop']);
 
@@ -486,25 +518,217 @@ export default function PRDPlatformPanel() {
 
   const [csDetail, setCsDetail] = useState('medium');
 
-  const ragDocumentId = useMemo(() => makeRagSessionId(), []);
+  const [ragDocumentId, setRagDocumentId] = useState(() => getOrCreateRagDocumentId());
   const [ragIndexed, setRagIndexed] = useState(false);
   const [ragLastFileName, setRagLastFileName] = useState('');
   const [ragQuestion, setRagQuestion] = useState('');
   const [ragBusy, setRagBusy] = useState(false);
   const [ragMsg, setRagMsg] = useState('');
   const [ragChat, setRagChat] = useState([]);
+  const [ragConversationSummary, setRagConversationSummary] = useState('');
+  const [ragRollupMessageIndex, setRagRollupMessageIndex] = useState(0);
+  const [ragHydrated, setRagHydrated] = useState(false);
   const [ragDropActive, setRagDropActive] = useState(false);
   const ragChatEndRef = useRef(null);
   const ragFileInputRef = useRef(null);
   const zipFileInputRef = useRef(null);
+  const ragRollupMessageIndexRef = useRef(0);
+  const ragSummaryRef = useRef('');
+
+  const [chatbotThreadId, setChatbotThreadId] = useState(() => getStoredOrCreateChatbotThreadId());
+  const [chatbotMessages, setChatbotMessages] = useState([]);
+  const [chatbotInput, setChatbotInput] = useState('');
+  const [chatbotBusy, setChatbotBusy] = useState(false);
+  const [chatbotConversationSummary, setChatbotConversationSummary] = useState('');
+  const [chatbotRollupMessageIndex, setChatbotRollupMessageIndex] = useState(0);
+  const [chatbotHydrated, setChatbotHydrated] = useState(false);
+  const chatbotChatEndRef = useRef(null);
+  const chatbotRollupMessageIndexRef = useRef(0);
+  const chatbotSummaryRef = useRef('');
 
   useEffect(() => {
     ragChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [ragChat]);
 
   useEffect(() => {
+    chatbotChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatbotMessages]);
+
+  useEffect(() => {
     docChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [docMessages, selectedCap, panelMode]);
+
+  useEffect(() => {
+    ragRollupMessageIndexRef.current = ragRollupMessageIndex;
+  }, [ragRollupMessageIndex]);
+  useEffect(() => {
+    chatbotRollupMessageIndexRef.current = chatbotRollupMessageIndex;
+  }, [chatbotRollupMessageIndex]);
+  useEffect(() => {
+    ragSummaryRef.current = ragConversationSummary;
+  }, [ragConversationSummary]);
+  useEffect(() => {
+    chatbotSummaryRef.current = chatbotConversationSummary;
+  }, [chatbotConversationSummary]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setChatbotHydrated(false);
+    (async () => {
+      try {
+        const { data } = await axios.get(
+          `${API_PRD}/chat/threads/${encodeURIComponent(chatbotThreadId)}`,
+          { timeout: 60000 },
+        );
+        if (cancelled) return;
+        setChatbotMessages(Array.isArray(data.messages) ? data.messages : []);
+        setChatbotConversationSummary(data.conversation_summary || '');
+        setChatbotRollupMessageIndex(
+          typeof data.rollup_message_index === 'number' ? data.rollup_message_index : 0,
+        );
+      } catch (e) {
+        if (cancelled) return;
+        setChatbotMessages([]);
+        setChatbotConversationSummary('');
+        setChatbotRollupMessageIndex(0);
+      } finally {
+        if (!cancelled) setChatbotHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatbotThreadId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRagHydrated(false);
+    (async () => {
+      try {
+        const { data } = await axios.get(
+          `${API_PRD}/chat/threads/${encodeURIComponent(ragDocumentId)}`,
+          { timeout: 60000 },
+        );
+        if (cancelled) return;
+        setRagChat(Array.isArray(data.messages) ? data.messages : []);
+        setRagConversationSummary(data.conversation_summary || '');
+        setRagRollupMessageIndex(
+          typeof data.rollup_message_index === 'number' ? data.rollup_message_index : 0,
+        );
+        setRagIndexed(Boolean(data.rag_indexed));
+        setRagLastFileName(typeof data.rag_last_file_name === 'string' ? data.rag_last_file_name : '');
+      } catch (e) {
+        if (cancelled) return;
+        setRagChat([]);
+        setRagConversationSummary('');
+        setRagRollupMessageIndex(0);
+        if (e.response?.status === 404) {
+          setRagIndexed(false);
+          setRagLastFileName('');
+        }
+      } finally {
+        if (!cancelled) setRagHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ragDocumentId]);
+
+  useEffect(() => {
+    if (!ragHydrated) return undefined;
+    const t = setTimeout(() => {
+      axios
+        .put(
+          `${API_PRD}/chat/threads/${encodeURIComponent(ragDocumentId)}`,
+          {
+            mode: 'hybrid_rag',
+            rag_document_id: ragDocumentId,
+            conversation_summary: ragConversationSummary,
+            rollup_message_index: ragRollupMessageIndex,
+            rag_indexed: ragIndexed,
+            rag_last_file_name: ragLastFileName,
+            messages: ragChat.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              ...(m.meta ? { meta: m.meta } : {}),
+            })),
+          },
+          { timeout: 120000 },
+        )
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [
+    ragHydrated,
+    ragDocumentId,
+    ragChat,
+    ragConversationSummary,
+    ragRollupMessageIndex,
+    ragIndexed,
+    ragLastFileName,
+  ]);
+
+  useEffect(() => {
+    if (!chatbotHydrated) return undefined;
+    const t = setTimeout(() => {
+      axios
+        .put(
+          `${API_PRD}/chat/threads/${encodeURIComponent(chatbotThreadId)}`,
+          {
+            mode: 'chatbot',
+            conversation_summary: chatbotConversationSummary,
+            rollup_message_index: chatbotRollupMessageIndex,
+            rag_indexed: false,
+            rag_last_file_name: '',
+            messages: chatbotMessages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+            })),
+          },
+          { timeout: 120000 },
+        )
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [chatbotHydrated, chatbotThreadId, chatbotMessages, chatbotConversationSummary, chatbotRollupMessageIndex]);
+
+  const tryRollup = useCallback(async (mode, fullMessages) => {
+    const startIdx =
+      mode === 'rag' ? ragRollupMessageIndexRef.current : chatbotRollupMessageIndexRef.current;
+    const prior = mode === 'rag' ? ragSummaryRef.current : chatbotSummaryRef.current;
+    const slice = fullMessages
+      .slice(startIdx)
+      .filter((m) => m.role === 'user' || m.role === 'assistant');
+    if (slice.length < ROLLUP_MESSAGE_THRESHOLD) return;
+    const capped = slice.length > 24 ? slice.slice(-24) : slice;
+    const exchanges = capped.map((m) => ({ role: m.role, content: m.content }));
+    try {
+      const { data } = await axios.post(
+        `${API_PRD}/conversation/rollup`,
+        { prior_summary: prior, exchanges },
+        { timeout: 120000 },
+      );
+      const s = (data.summary || '').trim();
+      if (!s) return;
+      const endLen = fullMessages.length;
+      if (mode === 'rag') {
+        setRagConversationSummary(s);
+        ragSummaryRef.current = s;
+        setRagRollupMessageIndex(endLen);
+        ragRollupMessageIndexRef.current = endLen;
+      } else {
+        setChatbotConversationSummary(s);
+        chatbotSummaryRef.current = s;
+        setChatbotRollupMessageIndex(endLen);
+        chatbotRollupMessageIndexRef.current = endLen;
+      }
+    } catch {
+      /* optional rollup failure */
+    }
+  }, []);
 
   const resetCodeSummarizerForm = useCallback(() => {
     setCsDetail('medium');
@@ -570,6 +794,14 @@ export default function PRDPlatformPanel() {
 
   const selectHybridRagFromMenu = useCallback(() => {
     setPanelMode('hybrid_rag');
+    setPlusMenuOpen(false);
+    setSelectedCap(null);
+    setAnswers({});
+    setGenError('');
+  }, []);
+
+  const selectChatbotFromMenu = useCallback(() => {
+    setPanelMode('chatbot');
     setPlusMenuOpen(false);
     setSelectedCap(null);
     setAnswers({});
@@ -708,6 +940,10 @@ export default function PRDPlatformPanel() {
           timeout: 600000,
         });
         setRagChat([]);
+        setRagConversationSummary('');
+        setRagRollupMessageIndex(0);
+        ragRollupMessageIndexRef.current = 0;
+        ragSummaryRef.current = '';
         setRagIndexed(true);
         setRagLastFileName(file.name);
         setRagMsg(
@@ -749,25 +985,34 @@ export default function PRDPlatformPanel() {
     setRagQuestion('');
     setRagBusy(true);
     setRagMsg('');
+    const summaryForRequest = ragConversationSummary.trim();
     try {
       const { data } = await axios.post(
         `${API_PRD_RAG}/query`,
-        { document_id: ragDocumentId, question: q },
+        {
+          document_id: ragDocumentId,
+          question: q,
+          ...(summaryForRequest ? { conversation_summary: summaryForRequest } : {}),
+        },
         { timeout: 600000 },
       );
-      setRagChat((prev) => [
-        ...prev,
-        {
-          id: userId + 1,
-          role: 'assistant',
-          content: data.answer || '_No answer text returned._',
-          meta: {
-            corrected_question: data.corrected_question,
-            elapsed_seconds: data.elapsed_seconds,
-            retries: data.retries,
+      setRagChat((prev) => {
+        const next = [
+          ...prev,
+          {
+            id: userId + 1,
+            role: 'assistant',
+            content: data.answer || '_No answer text returned._',
+            meta: {
+              corrected_question: data.corrected_question,
+              elapsed_seconds: data.elapsed_seconds,
+              retries: data.retries,
+            },
           },
-        },
-      ]);
+        ];
+        void tryRollup('rag', next);
+        return next;
+      });
       setRagMsg(`Last reply in ${data.elapsed_seconds ?? '?'}s (retries=${data.retries ?? 0}).`);
     } catch (e) {
       const d = e.response?.data?.detail;
@@ -777,13 +1022,76 @@ export default function PRDPlatformPanel() {
     } finally {
       setRagBusy(false);
     }
-  }, [ragDocumentId, ragIndexed, ragQuestion]);
+  }, [ragDocumentId, ragIndexed, ragQuestion, ragConversationSummary, tryRollup]);
+
+  const clearChatbotThread = useCallback(async () => {
+    const tid = chatbotThreadId;
+    try {
+      await axios.delete(`${API_PRD}/chat/threads/${encodeURIComponent(tid)}`);
+    } catch {
+      /* ignore */
+    }
+    const newId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `cb_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    try {
+      localStorage.setItem(STORAGE_CHATBOT_THREAD_ID, newId);
+    } catch {
+      /* ignore */
+    }
+    setChatbotThreadId(newId);
+    setChatbotMessages([]);
+    setChatbotInput('');
+    setChatbotConversationSummary('');
+    setChatbotRollupMessageIndex(0);
+    chatbotRollupMessageIndexRef.current = 0;
+    chatbotSummaryRef.current = '';
+  }, [chatbotThreadId]);
+
+  const handleChatbotSend = useCallback(async () => {
+    const text = chatbotInput.trim();
+    if (!text || chatbotBusy) return;
+    setChatbotBusy(true);
+    const history = chatbotMessages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role, content: m.content }));
+    const summaryForRequest = chatbotConversationSummary.trim();
+    const userId = Date.now();
+    setChatbotMessages((prev) => [...prev, { id: userId, role: 'user', content: text }]);
+    setChatbotInput('');
+    try {
+      const { data } = await axios.post(
+        `${API_PRD}/chatbot`,
+        {
+          message: text,
+          history,
+          ...(summaryForRequest ? { conversation_summary: summaryForRequest } : {}),
+        },
+        { timeout: 600000 },
+      );
+      setChatbotMessages((prev) => {
+        const next = [
+          ...prev,
+          { id: userId + 1, role: 'assistant', content: data.answer || '_No answer text returned._' },
+        ];
+        void tryRollup('chatbot', next);
+        return next;
+      });
+    } catch (e) {
+      const d = e.response?.data?.detail;
+      const msg = typeof d === 'string' ? d : d ? JSON.stringify(d) : e.message || 'Chat failed';
+      setChatbotMessages((prev) => [...prev, { id: userId + 1, role: 'error', content: msg }]);
+    } finally {
+      setChatbotBusy(false);
+    }
+  }, [chatbotInput, chatbotBusy, chatbotMessages, chatbotConversationSummary, tryRollup]);
 
   if (capLoading) {
     return (
       <div className="fixed inset-x-0 bottom-0 top-16 z-40 flex flex-col items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
-        <p className="mt-4 text-sm text-muted-foreground">Loading DocuAtlas…</p>
+        <p className="mt-4 text-sm text-muted-foreground">Loading OgesAssistant…</p>
       </div>
     );
   }
@@ -985,7 +1293,11 @@ export default function PRDPlatformPanel() {
     <div className="fixed inset-x-0 bottom-0 top-16 z-40 flex flex-col bg-background">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/40 bg-card/80 px-4 py-2.5 backdrop-blur-xl">
         <span className="text-sm font-medium text-muted-foreground">
-          {panelMode === 'hybrid_rag' ? 'Hybrid RAG' : 'Document generation'}
+          {panelMode === 'hybrid_rag'
+            ? 'Hybrid RAG'
+            : panelMode === 'chatbot'
+              ? 'Chatbot'
+              : 'Document generation'}
         </span>
         <div className="flex-1" />
         {panelMode === 'document' && docMessages.length > 0 ? (
@@ -999,20 +1311,48 @@ export default function PRDPlatformPanel() {
             size="sm"
             type="button"
             className="text-muted-foreground"
-            onClick={() => {
+            onClick={async () => {
+              const oldId = ragDocumentId;
+              const newId = makeRagSessionId();
+              try {
+                await axios.delete(`${API_PRD}/chat/threads/${encodeURIComponent(oldId)}`);
+              } catch {
+                /* ignore */
+              }
+              try {
+                localStorage.setItem(STORAGE_RAG_DOC_ID, newId);
+              } catch {
+                /* ignore */
+              }
+              setRagDocumentId(newId);
               setRagChat([]);
               setRagMsg('');
               setRagLastFileName('');
               setRagIndexed(false);
+              setRagConversationSummary('');
+              setRagRollupMessageIndex(0);
+              ragRollupMessageIndexRef.current = 0;
+              ragSummaryRef.current = '';
             }}
           >
             <Trash2 className="h-4 w-4" /> New chat
           </Button>
-        ) : (
+        ) : null}
+        {panelMode === 'chatbot' ? (
+          <>
+            <Button variant="ghost" size="sm" type="button" className="text-muted-foreground" onClick={clearChatbotThread}>
+              <Trash2 className="h-4 w-4" /> New chat
+            </Button>
+            <Button variant="outline" size="sm" type="button" onClick={() => setPanelMode('hybrid_rag')}>
+              <Search className="h-3.5 w-3.5" fill="currentColor" /> Hybrid RAG
+            </Button>
+          </>
+        ) : null}
+        {panelMode === 'document' ? (
           <Button variant="outline" size="sm" type="button" onClick={() => setPanelMode('hybrid_rag')}>
             <Search className="h-3.5 w-3.5" fill="currentColor" /> Hybrid RAG
           </Button>
-        )}
+        ) : null}
       </div>
 
       {capError ? (
@@ -1166,6 +1506,7 @@ export default function PRDPlatformPanel() {
                   <ServicePlusMenu
                     isOpen={plusMenuOpen}
                     onClose={() => setPlusMenuOpen(false)}
+                    onSelectChatbot={selectChatbotFromMenu}
                     onSelectCapability={selectCapabilityFromMenu}
                     onSelectHybridRag={selectHybridRagFromMenu}
                     capabilities={capabilities}
@@ -1214,6 +1555,135 @@ export default function PRDPlatformPanel() {
             </div>
           </div>
         </div>
+      ) : panelMode === 'chatbot' ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-1 flex-col px-3 py-4 lg:max-w-5xl xl:max-w-6xl xl:px-8">
+              {chatbotMessages.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center pb-32 text-center">
+                  <MessageSquare className="mb-3 h-10 w-10 text-muted-foreground/35" strokeWidth={1.25} aria-hidden />
+                  <p className="max-w-md text-lg font-medium text-foreground">
+                    {"What's on the agenda today?"}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6 pb-8">
+                  {chatbotMessages.map((m) => {
+                    if (m.role === 'user') {
+                      return (
+                        <div key={m.id} className="animate-fade-in flex justify-end">
+                          <div className="max-w-[min(100%,36rem)] rounded-3xl bg-primary/12 px-5 py-3 text-[15px] leading-relaxed text-foreground">
+                            {m.content}
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (m.role === 'error') {
+                      return (
+                        <div key={m.id} className="animate-fade-in flex justify-start">
+                          <div className="max-w-[min(100%,40rem)] rounded-2xl border border-destructive/25 bg-destructive/10 px-5 py-3 text-sm text-destructive">
+                            {m.content}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={m.id} className="animate-fade-in flex justify-start">
+                        <div className="max-w-[min(100%,40rem)] space-y-2">
+                          <article className="tech-markdown-doc prd-rag-md text-[15px] leading-relaxed text-foreground">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={techMarkdownComponents}>
+                              {m.content}
+                            </ReactMarkdown>
+                          </article>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            className="text-xs"
+                            onClick={() => {
+                              const blob = new Blob([m.content], { type: 'text/markdown;charset=utf-8' });
+                              const a = document.createElement('a');
+                              a.href = URL.createObjectURL(blob);
+                              a.download = 'chatbot-reply.md';
+                              a.click();
+                              URL.revokeObjectURL(a.href);
+                            }}
+                          >
+                            <Download className="h-3.5 w-3.5" /> Download reply
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {chatbotBusy ? (
+                    <div className="animate-fade-in flex justify-start">
+                      <div className="flex items-center gap-2 rounded-2xl border border-border/50 bg-secondary/40 px-4 py-3 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        Thinking…
+                      </div>
+                    </div>
+                  ) : null}
+                  <div ref={chatbotChatEndRef} />
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="shrink-0 border-t border-border/50 bg-background/95 px-4 py-3 backdrop-blur-md sm:px-6">
+            <div className="mx-auto w-full max-w-4xl space-y-3 lg:max-w-5xl xl:max-w-6xl">
+              <div className="flex items-end gap-2 rounded-[1.75rem] border border-border/60 bg-secondary/25 p-2 shadow-sm focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/15">
+                <div className="relative shrink-0">
+                  <ServicePlusMenu
+                    isOpen={plusMenuOpen}
+                    onClose={() => setPlusMenuOpen(false)}
+                    onSelectChatbot={selectChatbotFromMenu}
+                    onSelectCapability={selectCapabilityFromMenu}
+                    onSelectHybridRag={selectHybridRagFromMenu}
+                    capabilities={capabilities}
+                    capabilitiesDisabled={Boolean(capError)}
+                    anchorRef={plusButtonRef}
+                  />
+                  <button
+                    ref={plusButtonRef}
+                    type="button"
+                    title="Services menu"
+                    onClick={() => setPlusMenuOpen((v) => !v)}
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    <Plus className="h-6 w-6 stroke-[2]" aria-hidden />
+                    <span className="sr-only">Open services</span>
+                  </button>
+                </div>
+                <textarea
+                  rows={1}
+                  value={chatbotInput}
+                  onChange={(e) => setChatbotInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!chatbotBusy && chatbotInput.trim()) handleChatbotSend();
+                    }
+                  }}
+                  placeholder="Ask anything…"
+                  disabled={chatbotBusy}
+                  className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent py-3 pr-2 text-[15px] leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <Button
+                  variant="warm"
+                  size="icon"
+                  className="h-11 w-11 shrink-0 rounded-full"
+                  type="button"
+                  onClick={handleChatbotSend}
+                  disabled={chatbotBusy || !chatbotInput.trim()}
+                >
+                  {chatbotBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                </Button>
+              </div>
+              <p className="text-center text-[11px] text-muted-foreground">
+                Enter sends · Shift+Enter newline · Local GGUF (OgesAssistant chatbot)
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -1222,7 +1692,8 @@ export default function PRDPlatformPanel() {
                 <div className="flex flex-1 flex-col items-center justify-center pb-28 text-center">
                   <MessageSquare className="mb-3 h-10 w-10 text-muted-foreground/35" strokeWidth={1.25} aria-hidden />
                   <p className="max-w-lg text-sm text-muted-foreground">
-                    Use <strong className="text-foreground">+</strong> to pick a document type, or switch to{' '}
+                    Use <strong className="text-foreground">+</strong> to pick a document type,{' '}
+                    <strong className="text-foreground">chatbot</strong> for Q&amp;A, or{' '}
                     <strong className="text-foreground">Hybrid RAG</strong> to chat over an uploaded file.
                   </p>
                 </div>
@@ -1257,6 +1728,7 @@ export default function PRDPlatformPanel() {
                   <ServicePlusMenu
                     isOpen={plusMenuOpen}
                     onClose={() => setPlusMenuOpen(false)}
+                    onSelectChatbot={selectChatbotFromMenu}
                     onSelectCapability={selectCapabilityFromMenu}
                     onSelectHybridRag={selectHybridRagFromMenu}
                     capabilities={capabilities}
@@ -1275,7 +1747,9 @@ export default function PRDPlatformPanel() {
                   </button>
                 </div>
                 <p className="flex-1 py-3 text-sm text-muted-foreground">
-                  {selectedCap ? 'Complete the form above, or + to switch service.' : '+ Add document generation or Hybrid RAG'}
+                  {selectedCap
+                    ? 'Complete the form above, or + to switch service.'
+                    : '+ Document generation, chatbot, or Hybrid RAG'}
                 </p>
               </div>
             </div>

@@ -1,9 +1,11 @@
 """SQLite persistence for PRD platform projects and chunk metadata."""
 
+import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from app.core.config import settings
 from app.prd_platform.neo4j_graph import try_delete_project_graph
@@ -12,7 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 def _conn():
-    return sqlite3.connect(settings.PRD_PLATFORM_DB_FILE, check_same_thread=False)
+    conn = sqlite3.connect(settings.PRD_PLATFORM_DB_FILE, check_same_thread=False)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 
 def init_prd_db():
@@ -46,6 +50,37 @@ def init_prd_db():
             """
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_chunks_project ON chunks(project_id)")
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_threads (
+                id TEXT PRIMARY KEY,
+                mode TEXT NOT NULL CHECK(mode IN ('chatbot', 'hybrid_rag')),
+                rag_document_id TEXT,
+                conversation_summary TEXT NOT NULL DEFAULT '',
+                rollup_message_index INTEGER NOT NULL DEFAULT 0,
+                rag_indexed INTEGER NOT NULL DEFAULT 0,
+                rag_last_file_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                client_msg_id INTEGER,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                meta_json TEXT,
+                FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
+                UNIQUE(thread_id, seq)
+            )
+            """
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_thread ON chat_messages(thread_id)")
         c.commit()
     finally:
         c.close()
@@ -272,5 +307,125 @@ def get_project(project_id: str) -> dict | None:
         c.row_factory = sqlite3.Row
         row = c.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         return dict(row) if row else None
+    finally:
+        c.close()
+
+
+def delete_chat_thread(thread_id: str) -> bool:
+    """Delete thread and messages. Returns True if a row was removed."""
+    c = _conn()
+    try:
+        cur = c.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
+        c.commit()
+        return cur.rowcount > 0
+    finally:
+        c.close()
+
+
+def get_chat_thread_full(thread_id: str) -> dict[str, Any] | None:
+    """Return thread row plus messages list (id, role, content, meta?), or None if missing."""
+    c = _conn()
+    try:
+        c.row_factory = sqlite3.Row
+        row = c.execute("SELECT * FROM chat_threads WHERE id = ?", (thread_id,)).fetchone()
+        if not row:
+            return None
+        out = dict(row)
+        out["rag_indexed"] = bool(out.get("rag_indexed", 0))
+        cur = c.execute(
+            """
+            SELECT client_msg_id, role, content, meta_json
+            FROM chat_messages
+            WHERE thread_id = ?
+            ORDER BY seq ASC
+            """,
+            (thread_id,),
+        )
+        messages: list[dict[str, Any]] = []
+        for r in cur.fetchall():
+            mid, role, content, meta_raw = r[0], r[1], r[2], r[3]
+            item: dict[str, Any] = {
+                "id": int(mid) if mid is not None else 0,
+                "role": role,
+                "content": content or "",
+            }
+            if meta_raw:
+                try:
+                    parsed = json.loads(meta_raw)
+                    if isinstance(parsed, dict):
+                        item["meta"] = parsed
+                except json.JSONDecodeError:
+                    pass
+            messages.append(item)
+        out["messages"] = messages
+        return out
+    finally:
+        c.close()
+
+
+def save_chat_thread(
+    thread_id: str,
+    mode: str,
+    rag_document_id: str | None,
+    conversation_summary: str,
+    rollup_message_index: int,
+    rag_indexed: bool,
+    rag_last_file_name: str,
+    messages: list[dict[str, Any]],
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    c = _conn()
+    try:
+        c.execute("BEGIN")
+        c.execute(
+            """
+            INSERT INTO chat_threads
+            (id, mode, rag_document_id, conversation_summary, rollup_message_index,
+             rag_indexed, rag_last_file_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                mode = excluded.mode,
+                rag_document_id = excluded.rag_document_id,
+                conversation_summary = excluded.conversation_summary,
+                rollup_message_index = excluded.rollup_message_index,
+                rag_indexed = excluded.rag_indexed,
+                rag_last_file_name = excluded.rag_last_file_name,
+                updated_at = excluded.updated_at
+            """,
+            (
+                thread_id,
+                mode,
+                rag_document_id,
+                conversation_summary or "",
+                max(0, int(rollup_message_index)),
+                1 if rag_indexed else 0,
+                rag_last_file_name or "",
+                now,
+                now,
+            ),
+        )
+        c.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
+        for seq, m in enumerate(messages):
+            mid = m.get("id")
+            try:
+                client_id = int(mid) if mid is not None else 0
+            except (TypeError, ValueError):
+                client_id = 0
+            role = str(m.get("role") or "user")
+            content = str(m.get("content") or "")
+            meta = m.get("meta")
+            meta_json = json.dumps(meta) if isinstance(meta, dict) else None
+            c.execute(
+                """
+                INSERT INTO chat_messages
+                (thread_id, seq, client_msg_id, role, content, meta_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (thread_id, seq, client_id, role, content, meta_json),
+            )
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
     finally:
         c.close()

@@ -127,6 +127,11 @@ async def root():
         "docs": "/docs",
         "endpoints": {
             "prd_capabilities": "GET /api/v1/prd-platform/capabilities",
+            "prd_chatbot": "POST /api/v1/prd-platform/chatbot (JSON: message, optional history[], optional conversation_summary)",
+            "prd_conversation_rollup": "POST /api/v1/prd-platform/conversation/rollup (JSON: prior_summary, exchanges[])",
+            "prd_chat_thread_get": "GET /api/v1/prd-platform/chat/threads/{thread_id}",
+            "prd_chat_thread_put": "PUT /api/v1/prd-platform/chat/threads/{thread_id} (full snapshot: mode, messages[], summary, …)",
+            "prd_chat_thread_delete": "DELETE /api/v1/prd-platform/chat/threads/{thread_id}",
             "prd_upload": "POST /api/v1/prd-platform/projects/upload",
             "prd_generate": "POST /api/v1/prd-platform/projects/generate",
             "code_summarize_file": "POST /api/v1/code-summarize/file",

@@ -15,7 +15,7 @@ export default function Header() {
             decoding="async"
           />
           <div>
-            <h1 className="font-display text-lg font-bold tracking-tight text-foreground">DocuAtlas</h1>
+            <h1 className="font-display text-lg font-bold tracking-tight text-foreground">OgesAssistant</h1>
             <p className="text-xs text-muted-foreground">Chat · RAG · Document generation</p>
           </div>
         </div>
